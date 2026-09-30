@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <title>Spellcasters - Home</title>
-  <link rel="stylesheet" href="./style-base.css">
-  <link rel="stylesheet" href="./style-buttons.css">
-  <link rel="stylesheet" href="./style-home.css">
-  <link rel="stylesheet" href="./style-modal.css">
-  <link rel="stylesheet" href="./style-expbar.css">
+  <link rel="stylesheet" href="/css/style-base.css" data-ui-theme>
+  <link rel="stylesheet" href="/css/style-buttons.css" data-ui-theme>
+  <link rel="stylesheet" href="/css/style-home.css" data-ui-theme>
+  <link rel="stylesheet" href="/css/style-modal.css" data-ui-theme>
+  <link rel="stylesheet" href="/css/style-expbar.css" data-ui-theme>
 </head>
 <body>
   <div id="home-container" class="centered">
@@ -15,7 +15,7 @@
     <div id="home-buttons">
       <button id="btn-lab" class="main-btn home-btn-long">Lab</button>
       <button id="btn-arena" class="main-btn home-btn-long">Arena</button>
-      <button id="btn-settings" class="main-btn home-btn-long">Set</button>
+      <button id="btn-settings" class="main-btn home-btn-long">Impostazioni</button>
     </div>
     <div id="home-bottom-buttons">
       <button id="logout-btn" class="main-btn home-btn-bottom">Log out</button>
@@ -35,57 +35,20 @@
           <span id="audio-volume-value">50%</span>
         </label>
       </div>
+      <div id="theme-toggle-container" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;"></div>
+
       <label style="font-size:1.15em;">Key Bindings (prossimamente personalizzabili):</label>
       <div class="keybindings-list">
         <div class="keybinding-row"><span class="key">Z</span><span>Inizia/disegna spell</span></div>
         <div class="keybinding-row"><span class="key">G</span><span>Tema giorno</span></div>
         <div class="keybinding-row"><span class="key">N</span><span>Tema notte</span></div>
-        <div class="keybinding-row"><span class="key">RMB</span><span>Annulla cerchio magico</span></div>
+        <div class="keybinding-row"><span class="key">RMB / X</span><span>Annulla cerchio magico / area spaziale</span></div>
       </div>
       <button id="close-settings" class="main-btn" style="margin-top:24px;">Chiudi</button>
     </div>
   </div>
-  <!-- Sostituito il div foschia con un canvas per la foschia animata -->
+  <button id="version">Version 0.2</button>
   <canvas id="home-fog-canvas"></canvas>
-  <script type="module">
-    import { createThemeToggle, initTheme, getTheme } from './theme.js';
-    initTheme();
-    const username = localStorage.getItem('currentPlayer');
-    const themeToggle = createThemeToggle();
-    document.getElementById('btn-lab').onclick = () => {
-      window.location.href = '/lab.html';
-    };
-    document.getElementById('btn-arena').onclick = () => {
-      window.location.href = '/arena.html';
-    };
-    document.getElementById('btn-settings').onclick = () => {
-      document.getElementById('settings-modal').classList.remove('hidden');
-    };
-    document.getElementById('close-settings').onclick = () => {
-      document.getElementById('settings-modal').classList.add('hidden');
-    };
-    // Pulsante logout
-    document.getElementById('logout-btn').onclick = () => {
-      localStorage.removeItem('currentPlayer');
-      window.location.href = 'index.html';
-    };
-    // Pulsante info player (ora un vero link)
-    document.getElementById('btn-player-info').onclick = () => {
-      if (username) {
-        window.location.href = `player-info.html?user=${encodeURIComponent(username)}`;
-      } else {
-        alert("Nessun utente loggato!");
-      }
-    };
-    // Aggiorna la classe del body per il tema
-    function updateBodyThemeClass() {
-      const theme = getTheme();
-      document.body.classList.remove('day', 'night');
-      document.body.classList.add(theme);
-    }
-    updateBodyThemeClass();
-    window.onThemeChange = updateBodyThemeClass;
-  </script>
-  <script type="module" src="./home.js"></script>
+  <script type="module" src="./js/pages/home.page.js"></script>
 </body>
 </html>

@@ -1,9 +1,12 @@
 // element-patterns.js
-// Funzione per disegnare i pattern elementali su un canvas
-export function drawElementPattern(ctx, x, y, r, element) {
+// Disegno dei pattern (rune) di elementi e proiezioni all'interno dei cerchi magici.
+
+// colorOverride: se indicato, tutto il pattern usa quel colore (es. magie dell'avversario)
+export function drawElementPattern(ctx, x, y, r, element, colorOverride = null) {
   ctx.save();
   ctx.translate(x, y);
   if (element === 'fuoco') {
+    const c = colorOverride || 'orange';
     for (let i = 0; i < 16; i++) {
       let angle = (Math.PI * 2 / 16) * i;
       ctx.save();
@@ -13,45 +16,31 @@ export function drawElementPattern(ctx, x, y, r, element) {
       ctx.lineTo(r * 0.5, 0);
       ctx.lineTo(r * 0.7, Math.sin(Math.PI/8) * r * 0.2);
       ctx.lineTo(r * 0.9, 0);
-      ctx.strokeStyle = 'orange';
+      ctx.strokeStyle = c;
       ctx.lineWidth = 3;
       ctx.stroke();
       ctx.restore();
     }
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = c;
     // Cerchio piccolo centrale
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.22, 0, 2 * Math.PI);
-    ctx.strokeStyle = 'orange';
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 1;
-    ctx.stroke();
+    strokeCircle(ctx, r * 0.22, 1);
     // Cerchio medio (tra quello piccolo e quello a 0.9)
-    let rMedio = (r * 0.22 + r * 0.9) / 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, rMedio, 0, 2 * Math.PI);
-    ctx.strokeStyle = 'orange';
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 1;
-    ctx.stroke();
+    strokeCircle(ctx, (r * 0.22 + r * 0.9) / 2, 1);
     // Cerchio esterno che racchiude le fiamme
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.9, 0, 2 * Math.PI);
-    ctx.strokeStyle = 'orange';
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 0.7;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+    strokeCircle(ctx, r * 0.9, 0.7);
     // Secondo cerchio esterno, più ampio
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.97, 0, 2 * Math.PI);
-    ctx.strokeStyle = 'orange';
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 1;
-    ctx.stroke();
+    strokeCircle(ctx, r * 0.97, 1);
     let grad = ctx.createRadialGradient(0,0,0,0,0,r);
-    grad.addColorStop(0, '#fffbe0');
-    grad.addColorStop(0.5, '#ff9900');
-    grad.addColorStop(1, '#ff2222');
+    if (colorOverride) {
+      grad.addColorStop(0, colorOverride + '40');
+      grad.addColorStop(0.5, colorOverride + '20');
+      grad.addColorStop(1, colorOverride + '10');
+    } else {
+      grad.addColorStop(0, '#fffbe0');
+      grad.addColorStop(0.5, '#ff9900');
+      grad.addColorStop(1, '#ff2222');
+    }
     ctx.globalAlpha = 0.25;
     ctx.beginPath();
     ctx.arc(0,0,r*0.95,0,2*Math.PI);
@@ -60,39 +49,29 @@ export function drawElementPattern(ctx, x, y, r, element) {
     ctx.globalAlpha = 1;
   }
   if (element === 'aria') {
+    const c = colorOverride || '#aaf';
     // Cerchi concentrici
     for (let i = 1; i <= 3; i++) {
       ctx.beginPath();
       ctx.arc(0, 0, r * (0.3 + i * 0.18), 0, 2 * Math.PI);
-      ctx.strokeStyle = '#aaf';
+      ctx.strokeStyle = c;
       ctx.globalAlpha = 0.5;
       ctx.lineWidth = 1.5;
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
-    // Cerchio alle estremità interne delle linee radiali
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.3, 0, 2 * Math.PI);
-    ctx.strokeStyle = '#aaf';
+    ctx.strokeStyle = c;
     ctx.lineWidth = 3;
-    ctx.globalAlpha = 1;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-    // Cerchio alle estremità esterne delle linee radiali
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.81, 0, 2 * Math.PI);
-    ctx.strokeStyle = '#aaf';
-    ctx.lineWidth = 3;
-    ctx.globalAlpha = 1;
-    ctx.stroke();
-    ctx.globalAlpha = 1;
+    // Cerchi alle estremità interne ed esterne delle linee radiali
+    strokeCircle(ctx, r * 0.3, 1);
+    strokeCircle(ctx, r * 0.81, 1);
     // Linee radiali
     for (let i = 0; i < 12; i++) {
       let angle = (Math.PI * 2 / 12) * i;
       ctx.beginPath();
       ctx.moveTo(Math.cos(angle) * r * 0.3, Math.sin(angle) * r * 0.3);
       ctx.lineTo(Math.cos(angle) * r * 0.84, Math.sin(angle) * r * 0.84);
-      ctx.strokeStyle = '#aaf';
+      ctx.strokeStyle = c;
       ctx.globalAlpha = 0.4;
       ctx.lineWidth = 1;
       ctx.stroke();
@@ -111,33 +90,31 @@ export function drawElementPattern(ctx, x, y, r, element) {
         if (t === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      ctx.strokeStyle = '#aaf';
+      ctx.strokeStyle = c;
       ctx.globalAlpha = 0.7;
       ctx.lineWidth = 2;
       ctx.stroke();
     }
     ctx.restore();
     // Cerchio esterno aggiuntivo
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.97, 0, 2 * Math.PI);
-    ctx.strokeStyle = '#aaf';
+    ctx.strokeStyle = c;
     ctx.lineWidth = 3;
-    ctx.globalAlpha = 1;
-    ctx.stroke();
+    strokeCircle(ctx, r * 0.97, 1);
   }
   if (element === 'acqua') {
-    // Cerchi concentrici
+    const main = colorOverride || 'rgba(0,180,255,1)';
+    // Cerchi concentrici (il primo pieno, gli altri semitrasparenti)
     for (let i = 1; i <= 4; i++) {
       ctx.beginPath();
       ctx.arc(0, 0, r * (0.25 + i * 0.15), 0, 2 * Math.PI);
       if (i === 1) {
-        ctx.strokeStyle = 'rgba(0,180,255,1)';
+        ctx.strokeStyle = main;
         ctx.lineWidth = 3;
         ctx.globalAlpha = 1;
       } else {
-        ctx.strokeStyle = 'rgba(0,180,255,0.5)';
+        ctx.strokeStyle = colorOverride || 'rgba(0,180,255,0.5)';
         ctx.lineWidth = 2;
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = colorOverride ? 0.5 : 1;
       }
       ctx.stroke();
       ctx.globalAlpha = 1;
@@ -156,7 +133,7 @@ export function drawElementPattern(ctx, x, y, r, element) {
         else ctx.lineTo(px, py);
       }
       ctx.closePath();
-      ctx.strokeStyle = 'rgba(0,180,255,1)';  
+      ctx.strokeStyle = main;
       ctx.lineWidth = 1.5;
       ctx.stroke();
       ctx.restore();
@@ -169,37 +146,28 @@ export function drawElementPattern(ctx, x, y, r, element) {
       ctx.rotate(angle);
       ctx.beginPath();
       ctx.ellipse(rad, 0, 6, 3, angle, 0, 2 * Math.PI);
-      ctx.fillStyle = 'rgba(0,200,255,0.5)';
+      ctx.fillStyle = colorOverride ? colorOverride + '80' : 'rgba(0,200,255,0.5)';
       ctx.fill();
       ctx.restore();
     }
     // Cerchio esterno aggiuntivo
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.97, 0, 2 * Math.PI);
-    ctx.strokeStyle = 'rgba(0,180,255,1)';
+    ctx.strokeStyle = main;
     ctx.lineWidth = 3;
-    ctx.globalAlpha = 1;
-    ctx.stroke();
+    strokeCircle(ctx, r * 0.97, 1);
   }
   if (element === 'terra') {
+    const c = colorOverride || '#a86';
     // Cerchi concentrici
     for (let i = 1; i <= 3; i++) {
       ctx.beginPath();
       ctx.arc(0, 0, r * (0.32 + i * 0.18), 0, 2 * Math.PI);
-      if (i === 2) {
-        ctx.strokeStyle = '#a86';
-        ctx.lineWidth = 3;
-        ctx.globalAlpha = 1;
-      } else {
-        ctx.strokeStyle = '#a86';
-        ctx.globalAlpha = 0.5;
-        ctx.lineWidth = 2;
-      }
+      ctx.strokeStyle = c;
+      ctx.globalAlpha = i === 2 ? 1 : 0.5;
+      ctx.lineWidth = i === 2 ? 3 : 2;
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
     // Pentagono centrale
-    ctx.save();
     ctx.beginPath();
     for (let i = 0; i < 5; i++) {
       let angle = (Math.PI * 2 / 5) * i - Math.PI/2;
@@ -209,58 +177,122 @@ export function drawElementPattern(ctx, x, y, r, element) {
       else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.strokeStyle = '#a86';
+    ctx.strokeStyle = c;
     ctx.lineWidth = 3;
     ctx.globalAlpha = 0.8;
     ctx.stroke();
     ctx.globalAlpha = 1;
-    ctx.restore();
     // Pentacolo (stelletta)
-    ctx.save();
     ctx.beginPath();
     for (let i = 0; i < 5; i++) {
       let angle = (Math.PI * 2 / 5) * i - Math.PI/2;
-      let px = Math.cos(angle) * r * 0.38;
-      let py = Math.sin(angle) * r * 0.38;
-      ctx.lineTo(px, py);
-      let next = (i + 2) % 5;
-      let angle2 = (Math.PI * 2 / 5) * next - Math.PI/2;
-      let px2 = Math.cos(angle2) * r * 0.38;
-      let py2 = Math.sin(angle2) * r * 0.38;
-      ctx.lineTo(px2, py2);
+      ctx.lineTo(Math.cos(angle) * r * 0.38, Math.sin(angle) * r * 0.38);
+      let angle2 = (Math.PI * 2 / 5) * ((i + 2) % 5) - Math.PI/2;
+      ctx.lineTo(Math.cos(angle2) * r * 0.38, Math.sin(angle2) * r * 0.38);
     }
     ctx.closePath();
-    ctx.strokeStyle = '#a86';
+    ctx.strokeStyle = c;
     ctx.lineWidth = 1.5;
     ctx.globalAlpha = 0.7;
     ctx.stroke();
     ctx.globalAlpha = 1;
-    ctx.restore();
     // Linee radiali
     for (let i = 0; i < 10; i++) {
       let angle = (Math.PI * 2 / 10) * i;
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.lineTo(Math.cos(angle) * r * 0.85, Math.sin(angle) * r * 0.85);
-      ctx.strokeStyle = '#4a3';
+      ctx.strokeStyle = colorOverride || '#4a3';
       ctx.lineWidth = 1;
       ctx.globalAlpha = 0.4;
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
     // Cerchio esterno aggiuntivo
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.97, 0, 2 * Math.PI);
-    ctx.strokeStyle = '#a86';
+    ctx.strokeStyle = c;
     ctx.lineWidth = 3;
-    ctx.globalAlpha = 1;
-    ctx.stroke();
+    strokeCircle(ctx, r * 0.97, 1);
+  }
+  if (element === 'fulmine') {
+    const c = colorOverride || '#ffff55';
+    // Raggi a zigzag
+    for (let i = 0; i < 12; i++) {
+      ctx.save();
+      ctx.rotate((Math.PI * 2 / 12) * i);
+      ctx.beginPath();
+      ctx.moveTo(r * 0.2, 0);
+      for (let j = 1; j <= 8; j++) {
+        ctx.lineTo(r * (0.2 + j * 0.08), (j % 2 === 0) ? r * 0.03 : -r * 0.03);
+      }
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.8;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+    // Cerchio centrale
+    ctx.strokeStyle = c;
+    ctx.lineWidth = 3;
+    strokeCircle(ctx, r * 0.15, 1);
+    // Archi elettrici
+    for (let i = 0; i < 6; i++) {
+      let angle = (Math.PI * 2 / 6) * i;
+      ctx.beginPath();
+      ctx.arc(Math.cos(angle) * r * 0.6, Math.sin(angle) * r * 0.6, r * 0.1, 0, 2 * Math.PI);
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.7;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  }
+  if (element === 'luce') {
+    const c = colorOverride || '#ffffff';
+    // Raggi alternati spessi/sottili
+    for (let i = 0; i < 16; i++) {
+      ctx.save();
+      ctx.rotate((Math.PI * 2 / 16) * i);
+      ctx.beginPath();
+      ctx.moveTo(r * 0.1, 0);
+      ctx.lineTo(r * 0.9, 0);
+      ctx.strokeStyle = c;
+      ctx.lineWidth = i % 2 === 0 ? 3 : 1.5;
+      ctx.globalAlpha = i % 2 === 0 ? 0.8 : 0.5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+    // Cerchi concentrici
+    for (let i = 1; i <= 4; i++) {
+      ctx.beginPath();
+      ctx.arc(0, 0, r * (0.15 + i * 0.15), 0, 2 * Math.PI);
+      ctx.strokeStyle = c;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.9 - i * 0.15;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    // Centro luminoso
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.1, 0, 2 * Math.PI);
+    ctx.fillStyle = c + '99';
+    ctx.fill();
   }
   ctx.restore();
 }
 
+// Cerchio centrato nell'origine con lo strokeStyle/lineWidth correnti
+function strokeCircle(ctx, radius, alpha) {
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, 2 * Math.PI);
+  ctx.globalAlpha = alpha;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
 // Pattern cerchio magico proiettile (fucsia, anello, interno libero)
-export function drawProjectilePattern(ctx, x, y, r, color) {
+export function drawProjectilePattern(ctx, x, y, r, color = "#ff33cc") {
   ctx.save();
   ctx.translate(x, y);
   ctx.beginPath();
@@ -299,7 +331,7 @@ export function drawProjectilePattern(ctx, x, y, r, color) {
     let py = Math.sin(angle) * r * 0.82 * 0.3;
     ctx.beginPath();
     ctx.arc(px, py, 2, 0, 2 * Math.PI);
-    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
     ctx.globalAlpha = 0.7;
     ctx.fill();
     ctx.globalAlpha = 1;

@@ -1,9 +1,15 @@
-// pvp-manager.js - Gestione partite PvP integrata con main.js
+// pvp-manager.js - Gestione delle partite PvP, integrata con engine.js
 import { VirtualMouseEntity, globalCollisionSystem } from "./collision-system.js";
 import { triggerCameraShake, updateRedOverlay } from './damage-effects.js';
 import { drawProjectilePolygonPattern, drawElementPattern } from "./element-patterns.js";
-import { applyElementalHit, statusEffectManager, updateStatusEffects, createElementalDebuffParticles } from './status-effects.js';
+import { applyElementalHit, statusEffectManager, createElementalDebuffParticles } from './status-effects.js';
 import { audioManager } from './audio-manager.js';
+import { getElementColor, getOpponentElementColor } from './elements.js';
+import { WS_URL } from '../services/config.js';
+import { loadPlayerFromDB, savePlayerData, getCurrentUsername } from '../services/player-db.js';
+
+const OPPONENT_COLOR = '#ff6666';
+const HIT_RADIUS = 30;
 
 export class PvPManager {
     constructor(gameCanvas, gameContext) {
@@ -11,58 +17,47 @@ export class PvPManager {
         this.ctx = gameContext;
         this.ws = null;
         this.isConnected = false;
-        
-        // Dati partita
+        this.intentionalDisconnect = false;
+
+        // Dati partita (salvati dall'Arena in localStorage)
         this.matchData = null;
         this.playerRole = null; // 'player1' o 'player2'
         this.opponentData = null;
-        this.gameState = null;
 
-        this.opponentEntity = null; // Entità avversaria
-        
-        // Hook nel sistema di gioco principale
+        // Riferimenti allo stato di engine.js (aggiornati a ogni frame)
         this.gameHooks = {
             virtualMouse: null,
             projectiles: null,
             magicCircle: null,
             playerHealth: 100,
-            opponentHealth: 100,
             activeMagicParticles: null
         };
-        
+
         // Stato sincronizzato dell'avversario
         this.opponent = {
             health: 100,
-            mana: 100,
             position: { x: 0, y: 0 },
             virtualMouse: { x: 0, y: 0 },
             magicCircle: null,
-            projectiles: [],
             isAlive: true,
             casting: false,
             castingPoints: []
         };
-        
-        // Sistema di collisione per PvP
-        this.playerHitbox = { x: 0, y: 0, width: 40, height: 60 };
-        this.opponentHitbox = { x: 0, y: 0, width: 40, height: 60 };
-        
-        // Sistemi di sincronizzazione
-        this.lastUpdateSent = 0;
-        this.updateInterval = 1000 / 60; // 60 FPS per sincronizzazione
-        this.lastMagicCircleState = null;
-        
-        this.processedHits = new Set(); // Traccia hit già processati
-
-        this.processedSpatialHits = new Set(); // Traccia hit spaziali già processati
-
-        this.healthPersistenceKey = null;
-
-        this.intentionalDisconnect = false;
-
+        this.opponentEntity = null;
+        this.opponentSpazialeAreas = [];
+        this.activeSpatialIntervals = {};
         this.opponentCircleRotation = 0;
 
+        this.lastUpdateSent = 0;
+        this.updateInterval = 1000 / 60;
+        this.lastMagicCircleState = null;
+        this.lastCastingState = null;
+        this.processedHits = new Set();
+        this.healthPersistenceKey = null;
+
+        // loading -> waiting_for_ready -> countdown -> active -> finished
         this.matchState = 'loading';
+        this.countdownCircle = null;
 
         this.preMatchOverlay = document.getElementById('pre-match-overlay');
         this.postMatchOverlay = document.getElementById('post-match-overlay');
@@ -74,287 +69,21 @@ export class PvPManager {
         this.countdownText = document.getElementById('countdown-text');
         this.matchResultText = document.getElementById('match-result-text');
 
-        this.countdownCircle = null;
-
-        // status effects
-        this.playerMovementModifier = { speedMultiplier: 1 };
-        this.playerControlInverted = false;
-        this.playerStunned = false;
-        this.opponentMovementModifier = { speedMultiplier: 1 };
-        this.opponentControlInverted = false;
-        this.opponentStunned = false;
-
         this.setupStatusEffectCallbacks();
-
         this.initializePvP();
 
-        this.setupPageUnloadHandler();
-    }
-
-    drawCountdownCircle(ctx) {
-        const circle = this.countdownCircle;
-        if (!circle) return;
-
-        const { x, y, radius, projections, circleRotation, projectionRotation, element } = circle;
-        
-        // Colore base del timer (un blu/ciano standard)
-        const color = element ? this.getElementColor(element) : "#00e0ff";
-        const thickness = 3;
-
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(circleRotation);
-        ctx.translate(-x, -y);
-
-        if (element) {
-            // Usa la funzione che abbiamo importato
-            drawElementPattern(ctx, x, y, radius * 0.82, element);
-        }
-
-        // Cerchi principali
-        ctx.lineWidth = thickness;
-        ctx.strokeStyle = color;
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(x, y, radius + 20, 0, 2 * Math.PI);
-        ctx.stroke();
-
-        // Segmenti radiali
-        ctx.lineWidth = 1;
-        const numSegments = 24;
-        for (let i = 0; i < numSegments; i++) {
-            const angle = (2 * Math.PI / numSegments) * i;
-            const innerX = x + Math.cos(angle) * radius;
-            const innerY = y + Math.sin(angle) * radius;
-            const outerX = x + Math.cos(angle) * (radius + 20);
-            const outerY = y + Math.sin(angle) * (radius + 20);
-            ctx.beginPath();
-            ctx.moveTo(outerX, outerY);
-            ctx.lineTo(innerX, innerY);
-            ctx.stroke();
-        }
-        ctx.restore();
-
-        // Disegna le proiezioni (le "cariche" del countdown)
-        // Usa la funzione già importata in pvp-manager.js
-        if (projections && projections.length > 0) {
-            drawProjectilePolygonPattern(
-                ctx,
-                x,
-                y,
-                radius * 1.2,
-                projections.length,
-                color, // <-- Colore elemento
-                projectionRotation,
-                projections // <-- Tipi di proiezione casuali
-            );
-        }
-    }
-
-    getRandomElement() {
-        const elements = ['fuoco', 'acqua', 'aria', 'terra'];
-        return elements[Math.floor(Math.random() * elements.length)];
-    }
-
-    getRandomProjectionType() {
-        // Tipi di proiezione validi
-        const types = ['proiettile', 'spaziale']; 
-        return types[Math.floor(Math.random() * types.length)];
-    }
-
-    // chiamata da initializePvP
-    setupPreMatchOverlay() {
-        if (!this.preMatchOverlay || !this.readyBtn || !this.readyContainer) {
-            console.error("Elementi UI pre-partita non trovati!");
-            this.matchState = 'active'; // Fallback se l'UI non c'è
-            return;
-        }
-
-        this.matchState = 'waiting_for_ready';
-        this.preMatchOverlay.classList.remove('hidden');
-        this.readyContainer.classList.remove('hidden');
-        this.countdownContainer.classList.add('hidden');
-        
-        this.readyBtn.onclick = () => {
-            // 1. Attiva il contesto audio (da main.js)
-            audioManager.resumeContext();
-            
-            // 2. Richiedi il Pointer Lock (da main.js)
-            this.canvas.requestPointerLock();
-            this.canvas.focus();
-            
-            // 3. Invia "pronto" al server
-            if (this.isConnected) {
-                this.ws.send(JSON.stringify({
-                    type: 'playerReady',
-                    matchId: this.matchData.matchId,
-                    playerRole: this.playerRole
-                }));
-            }
-            
-            // 4. Aggiorna la UI del pulsante
-            this.readyTitle.textContent = 'In attesa dell\'avversario...';
-            this.readyMessage.textContent = 'Preparati alla battaglia!';
-            this.readyBtn.disabled = true;
-            this.readyBtn.textContent = 'Pronto!';
-        };
-    }
-
-    // invia "pronto" al server
-    startCountdown() {
-        if (this.matchState !== 'waiting_for_ready' && this.matchState !== 'starting') return;
-        
-        console.log("Inizio countdown con cerchio magico...");
-        audioManager.playClockSound();
-        this.matchState = 'countdown';
-        
-        if (this.readyContainer) this.readyContainer.classList.add('hidden');
-        
-        if (this.countdownContainer) {
-            this.countdownContainer.classList.remove('hidden');
-            this.countdownContainer.classList.add('transparent-bg');
-        }
-        if (this.countdownText) {
-            this.countdownText.style.display = 'none'; // Nasconde "3"
-        }
-
-        let count = 3;
-
-        // --- NUOVO: Crea proiezioni casuali ---
-        const initialProjections = [];
-        for (let i = 0; i < count; i++) {
-            initialProjections.push(this.getRandomProjectionType());
-        }
-        // --- FINE NUOVO ---
-
-        // Crea l'oggetto per il cerchio del countdown
-        this.countdownCircle = {
-            x: this.canvas.width / 2,
-            y: this.canvas.height / 2,
-            radius: 150,
-            projections: initialProjections,           // <-- MODIFICATO
-            element: this.getRandomElement(),          // <-- NUOVO
-            rotationDirection: 1,                      // <-- NUOVO (per inversione)
-            circleRotation: 0,
-            projectionRotation: 0
-        };
-
-        // --- NUOVO: Camera Shake iniziale ---
-        triggerCameraShake(3, 1000); // Shake leggero per 1 secondo
-
-        const interval = setInterval(() => {
-            count--;
-            
-            if (this.countdownCircle) {
-                // --- NUOVO: Camera Shake a ogni tick ---
-                triggerCameraShake(3, 1000); // Shake leggero per 1 secondo
-
-                // --- NUOVO: Inversione rotazione ---
-                if (count === 2) {
-                    this.countdownCircle.rotationDirection = -1; // Inverti!
-                }
-
-                // Rimuovi una carica (proiezione)
-                if (count > 0) {
-                    this.countdownCircle.projections.pop();
-                    // --- NUOVO: Cambia elemento casuale ---
-                    this.countdownCircle.element = this.getRandomElement();
-                } 
-                // A zero, mostra "DUEL!" e rimuovi l'ultima carica
-                else if (count === 0) {
-                    this.countdownCircle.projections = [];
-                    // --- NUOVO: Cambia elemento casuale (per la scritta DUEL!) ---
-                    this.countdownCircle.element = this.getRandomElement();
-                    
-                    if (this.countdownText) {
-                        this.countdownText.textContent = 'DUEL!';
-                        this.countdownText.style.display = 'block';
-                        this.countdownText.style.animation = 'pulse 0.5s 2';
-                    }
-                } 
-                // A -1, pulisci tutto e inizia la partita
-                else {
-                    audioManager.stopClockSound();
-                    audioManager.playStartSound();
-                    clearInterval(interval);
-                    if (this.preMatchOverlay) this.preMatchOverlay.classList.add('hidden');
-                    this.countdownCircle = null; // Rimuovi il cerchio
-                    this.matchState = 'active'; // <-- PARTITA ATTIVA!
-                    console.log("🟢 Partita attiva!");
-                }
-            } else {
-                 clearInterval(interval); // Sicurezza
-            }
-        }, 1000); // Esattamente ogni secondo
-    }
-
-    setupStatusEffectCallbacks() {
-        // Callback per il giocatore locale
-        statusEffectManager.registerDamageCallback('player', (damage, source) => {
-            console.log(`💥 Player riceve ${damage} danno da ${source}`);
-            this.gameHooks.playerHealth -= damage;
-            this.showDamageEffect(damage, true);
-            triggerCameraShake(5, 150);
-
-            if (this.gameHooks.playerHealth <= 0) {
-                this.endMatch(false);
-            }
-        });
-
-        statusEffectManager.registerVisualCallback('player', (effectType, element) => {
-            if (effectType === 'burning') {
-                this.showStatusEffect(effectType, true);
-            } else if (effectType === 'debuff_particles') {
-                this.createDebuffParticles(element, this.gameHooks.virtualMouse);
-            } else {
-                this.showStatusEffect(effectType, true);
-            }
-        });
-
-        statusEffectManager.registerMovementCallback('player', (modifier) => {
-            this.playerMovementModifier = modifier;
-        });
-
-        statusEffectManager.registerControlCallback('player', (inverted) => {
-            this.playerControlInverted = inverted;
-        });
-
-        statusEffectManager.registerStunCallback('player', (stunned) => {
-            this.playerStunned = stunned;
-        });
-
-        // Callback per l'avversario
-        statusEffectManager.registerDamageCallback('opponent', (damage, source) => {
-            console.log(`💥 Opponent riceve ${damage} danno da ${source}`);
-            this.opponent.health -= damage;
-            this.showDamageEffect(damage, false);
-
-            if (this.opponent.health <= 0) {
-                this.endMatch(true);
-            }
-        });
-
-        statusEffectManager.registerMovementCallback('opponent', (modifier) => {
-            this.opponentMovementModifier = modifier;
-        });
-
-        statusEffectManager.registerControlCallback('opponent', (inverted) => {
-            this.opponentControlInverted = inverted;
-        });
-
-        statusEffectManager.registerStunCallback('opponent', (stunned) => {
-            this.opponentStunned = stunned;
-        });
-
-        statusEffectManager.registerVisualCallback('opponent', (effectType) => {
-            this.showStatusEffect(effectType, false);
+        // Chiudendo la pagina la connessione cade: il server assegna la vittoria all'avversario
+        window.addEventListener('beforeunload', () => {
+            this.intentionalDisconnect = true;
+            if (this.ws) this.ws.close();
         });
     }
 
-    async initializePvP() {
-        // Carica dati del match da localStorage
+    // ------------------------------------------------------------
+    // INIZIALIZZAZIONE E CONNESSIONE
+    // ------------------------------------------------------------
+
+    initializePvP() {
         const matchDataStr = localStorage.getItem('currentMatchData');
         if (!matchDataStr) {
             console.error('❌ Dati match non trovati');
@@ -364,158 +93,47 @@ export class PvPManager {
         this.matchData = JSON.parse(matchDataStr);
         this.playerRole = this.matchData.playerRole;
         this.opponentData = this.matchData.opponent;
-        this.gameState = this.matchData.gameState;
 
         this.healthPersistenceKey = `match_health_${this.matchData.matchId}`;
         this.loadHealthFromStorage();
-        
-        // Imposta posizioni iniziali
-        if (this.playerRole === 'player1') {
-            this.opponent.position = { x: this.canvas.width - 200, y: this.canvas.height / 2 };
-            this.opponent.virtualMouse = { x: this.canvas.width - 200, y: this.canvas.height / 2 };
-        } else {
-            this.opponent.position = { x: 200, y: this.canvas.height / 2 };
-            this.opponent.virtualMouse = { x: 200, y: this.canvas.height / 2 };
-        }
+
+        // Posizione iniziale dell'avversario (lato opposto dello schermo)
+        const startX = this.playerRole === 'player1' ? this.canvas.width - 200 : 200;
+        this.opponent.position = { x: startX, y: this.canvas.height / 2 };
+        this.opponent.virtualMouse = { x: startX, y: this.canvas.height / 2 };
 
         this.setupPreMatchOverlay();
-
-        // Connetti al server di gioco
         this.connectToGameServer();
 
-        // Crea entità di collisione per l'avversario
-        this.opponentEntity = new VirtualMouseEntity(
-            this.opponent.virtualMouse.x,
-            this.opponent.virtualMouse.y,
-            25
-        );
-
+        this.opponentEntity = new VirtualMouseEntity(this.opponent.virtualMouse.x, this.opponent.virtualMouse.y, 25);
         this.opponentEntity.type = 'opponent';
         this.opponentEntity.mass = 0.5;
         this.opponentEntity.resistance = 0.8;
-
         globalCollisionSystem.registerEntity(this.opponentEntity);
 
         console.log(`⚔️ Partita PvP inizializzata - Ruolo: ${this.playerRole}`);
         console.log(`🎯 Avversario: ${this.opponentData.username} (Liv. ${this.opponentData.level})`);
     }
 
-    setupPageUnloadHandler() {
-        window.addEventListener('beforeunload', (event) => {
-            if (this.isActive() && this.isConnected) {
-                this.notifyPlayerDisconnect();
-                // NON chiamare qui cleanupMatch()!
-                window.location.href = 'arena.html';
-            }
-        });
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden && this.isActive() && this.isConnected) {
-                this.notifyPlayerDisconnect();
-            }
-        });
-    }
-
-    notifyPlayerDisconnect() {
-        if (!this.isConnected || !this.ws) return;
-        this.intentionalDisconnect = true;
-        try {
-            const disconnectMessage = {
-                type: 'playerDisconnect',
-                matchId: this.matchData.matchId,
-                playerRole: this.playerRole,
-                reason: 'forfeit',
-                timestamp: Date.now()
-            };
-            this.ws.send(JSON.stringify(disconnectMessage));
-        } catch (error) {
-            console.error('❌ Errore invio disconnessione:', error);
-        }
-    }
-
-    loadHealthFromStorage() {
-        try {
-            const savedHealth = localStorage.getItem(this.healthPersistenceKey);
-            if (savedHealth) {
-                const healthData = JSON.parse(savedHealth);
-                
-                // Carica salute del player corrente
-                if (healthData[this.playerRole]) {
-                    this.gameHooks.playerHealth = healthData[this.playerRole];
-                    console.log(`💚 Salute caricata per ${this.playerRole}: ${this.gameHooks.playerHealth}`);
-                }
-                
-                // Carica salute dell'avversario
-                const opponentRole = this.playerRole === 'player1' ? 'player2' : 'player1';
-                if (healthData[opponentRole]) {
-                    this.opponent.health = healthData[opponentRole];
-                    console.log(`💚 Salute caricata per avversario: ${this.opponent.health}`);
-                }
-            } else {
-                console.log('💚 Nessuna salute salvata trovata, usando valori di default');
-            }
-        } catch (error) {
-            console.error('❌ Errore caricamento salute:', error);
-        }
-    }
-
-    saveHealthToStorage() {
-        try {
-            const currentHealth = this.getCurrentHealthData();
-            localStorage.setItem(this.healthPersistenceKey, JSON.stringify(currentHealth));
-            console.log('💾 Salute salvata:', currentHealth);
-        } catch (error) {
-            console.error('❌ Errore salvataggio salute:', error);
-        }
-    }
-
-    getCurrentHealthData() {
-        const opponentRole = this.playerRole === 'player1' ? 'player2' : 'player1';
-        return {
-            [this.playerRole]: this.gameHooks.playerHealth,
-            [opponentRole]: this.opponent.health
-        };
-    }
-
     connectToGameServer() {
-        // const wsUrl = 'ws://localhost:8080'; // Usa server locale per debugging
-        const wsUrl = 'wss://spellcasters.onrender.com'; // Usa server remoto per produzione
-        
         try {
-            this.ws = new WebSocket(wsUrl);
-            
+            this.ws = new WebSocket(WS_URL);
+
             this.ws.onopen = () => {
                 console.log('🎮 Connesso al server di gioco');
                 this.isConnected = true;
-
-                // Prima registra il giocatore
-                const registerMessage = {
-                    type: 'register',
-                    username: localStorage.getItem('currentPlayer'),
-                    level: 1, // o prendi dal localStorage
-                    timestamp: Date.now()
-                };
-                
-                console.log('📨 Invio registrazione:', registerMessage);
-                this.ws.send(JSON.stringify(registerMessage));
-                
-                // Poi unisciti alla partita esistente
-                setTimeout(() => {
-                    const joinMessage = {
-                        type: 'joinMatchmaking', // o forse dovrebbe essere un tipo diverso
-                        matchId: this.matchData.matchId,
-                        playerRole: this.playerRole,
-                        username: localStorage.getItem('currentPlayer')
-                    };
-                    
-                    console.log('📨 Invio join partita:', joinMessage);
-                    this.ws.send(JSON.stringify(joinMessage));
-                }, 100);
+                // Ci ricolleghiamo alla partita creata mentre eravamo nella pagina Arena
+                this.send({
+                    type: 'rejoinMatch',
+                    matchId: this.matchData.matchId,
+                    rejoinToken: this.matchData.rejoinToken,
+                    username: getCurrentUsername()
+                });
             };
 
             this.ws.onmessage = (event) => {
                 try {
-                    const data = JSON.parse(event.data);
-                    this.handleGameMessage(data);
+                    this.handleGameMessage(JSON.parse(event.data));
                 } catch (error) {
                     console.error('❌ Errore parsing messaggio gioco:', error, event.data);
                 }
@@ -523,65 +141,76 @@ export class PvPManager {
 
             this.ws.onerror = (error) => {
                 console.error('❌ Errore WebSocket gioco:', error);
-                this.isConnected = false;
             };
 
             this.ws.onclose = () => {
                 console.log('🔌 Connessione chiusa');
                 this.isConnected = false;
-                if (!this.intentionalDisconnect) {
+                if (!this.intentionalDisconnect && this.matchState !== 'finished') {
                     setTimeout(() => {
-                        if (!this.isConnected && !this.intentionalDisconnect) {
-                            this.connectToGameServer();
-                        }
+                        if (!this.isConnected && !this.intentionalDisconnect) this.connectToGameServer();
                     }, 3000);
                 }
             };
-            
         } catch (error) {
             console.error('❌ Errore connessione WebSocket:', error);
         }
     }
 
+    send(message) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                matchId: this.matchData?.matchId,
+                playerRole: this.playerRole,
+                timestamp: Date.now(),
+                ...message
+            }));
+        }
+    }
+
     handleGameMessage(data) {
-
-
         switch (data.type) {
-            case 'gameUpdate':
-                this.handleGameUpdate(data);
+            case 'rejoined':
+                console.log(`🔁 Rientrato nella partita (stato: ${data.matchState})`);
+                break;
+            case 'matchNotFound':
+                this.handleMatchNotFound();
+                break;
+            case 'opponentReady':
+                if (this.readyTitle && this.matchState === 'waiting_for_ready') {
+                    this.readyMessage.textContent = 'L\'avversario è pronto!';
+                }
+                break;
+            case 'matchStartCountdown':
+                this.startCountdown();
                 break;
             case 'opponentMove':
                 this.handleOpponentMove(data);
                 break;
             case 'opponentCasting':
-                this.handleOpponentCasting(data);
+                this.opponent.casting = data.casting;
+                if (data.castingPoints) this.opponent.castingPoints = data.castingPoints;
                 break;
             case 'opponentProjectile':
                 this.handleOpponentProjectile(data);
                 break;
             case 'opponentMagicCircle':
-                this.handleOpponentMagicCircle(data);
+                this.opponent.magicCircle = data.magicCircle || null;
                 break;
             case 'opponentSpell':
                 this.handleOpponentSpell(data);
                 break;
+            case 'opponentSpellRemoval':
+                this.removeOpponentArea(data.areaId);
+                break;
             case 'projectileHit':
                 this.handleProjectileHit(data);
                 break;
+            case 'opponentDisconnected':
+                this.endMatch(true, 'opponent_disconnect');
+                break;
             case 'gameEnd':
                 this.handleGameEnd(data);
-                break;
-            case 'playerDisconnect':
-                this.handlePlayerDisconnect(data);
-                break;
-            case 'opponentSpellRemoval':
-                this.handleOpponentSpellRemoval(data);
-                break;
-            case 'playerReady':
-                if (this.readyTitle) this.readyTitle.textContent = 'Avversario pronto!';
-                break;
-            case 'matchStartCountdown':
-                this.startCountdown();
                 break;
             case 'error':
                 console.error('❌ Errore server:', data.message);
@@ -589,20 +218,205 @@ export class PvPManager {
         }
     }
 
-    showStatusEffect(effectType, isPlayer) {
-        const position = isPlayer ? this.gameHooks.virtualMouse : this.opponent.position;
+    // La partita non esiste più sul server (scaduta, o abbandonata durante il caricamento)
+    handleMatchNotFound() {
+        console.warn('⚠️ Partita non trovata sul server');
+        // Connessione persa a partita iniziata: il server ci ha già dato la sconfitta a tavolino
+        if (this.matchState === 'countdown' || this.matchState === 'active') {
+            this.endMatch(false, 'forfeit');
+            return;
+        }
+        this.matchState = 'finished';
+        this.cleanupMatch();
+        if (this.readyTitle) {
+            this.readyContainer.classList.remove('hidden');
+            this.readyTitle.textContent = 'Partita non più disponibile';
+            this.readyMessage.textContent = 'Ritorno all\'arena...';
+            this.readyBtn.classList.add('hidden');
+        }
+        setTimeout(() => { window.location.href = '/arena.html'; }, 2500);
+    }
 
-        // Crea particelle in base al tipo di effetto
-        switch (effectType) {
-            case 'burning':
-                this.createBurningParticles(position);
-                break;
-            // Altri effetti...
+    // ------------------------------------------------------------
+    // PRE-PARTITA E COUNTDOWN
+    // ------------------------------------------------------------
+
+    setupPreMatchOverlay() {
+        if (!this.preMatchOverlay || !this.readyBtn || !this.readyContainer) {
+            console.error("Elementi UI pre-partita non trovati!");
+            this.matchState = 'active';
+            return;
+        }
+
+        this.matchState = 'waiting_for_ready';
+        this.preMatchOverlay.classList.remove('hidden');
+        this.readyContainer.classList.remove('hidden');
+        this.countdownContainer.classList.add('hidden');
+
+        this.readyBtn.onclick = () => {
+            audioManager.resumeContext();
+            this.canvas.requestPointerLock();
+            this.canvas.focus();
+
+            this.send({ type: 'playerReady' });
+
+            this.readyTitle.textContent = 'In attesa dell\'avversario...';
+            this.readyMessage.textContent = 'Preparati alla battaglia!';
+            this.readyBtn.disabled = true;
+            this.readyBtn.textContent = 'Pronto!';
+        };
+    }
+
+    getRandomElement() {
+        const elements = ['fuoco', 'acqua', 'aria', 'terra'];
+        return elements[Math.floor(Math.random() * elements.length)];
+    }
+
+    getRandomProjectionType() {
+        const types = ['proiettile', 'spaziale'];
+        return types[Math.floor(Math.random() * types.length)];
+    }
+
+    startCountdown() {
+        if (this.matchState !== 'waiting_for_ready') return;
+
+        audioManager.playClockSound();
+        this.matchState = 'countdown';
+
+        if (this.readyContainer) this.readyContainer.classList.add('hidden');
+        if (this.countdownContainer) {
+            this.countdownContainer.classList.remove('hidden');
+            this.countdownContainer.classList.add('transparent-bg');
+        }
+        if (this.countdownText) this.countdownText.style.display = 'none';
+
+        let count = 3;
+
+        // Il countdown è un cerchio magico con 3 cariche casuali che si consumano
+        this.countdownCircle = {
+            x: this.canvas.width / 2,
+            y: this.canvas.height / 2,
+            radius: 150,
+            projections: Array.from({ length: count }, () => this.getRandomProjectionType()),
+            element: this.getRandomElement(),
+            rotationDirection: 1,
+            circleRotation: 0,
+            projectionRotation: 0
+        };
+
+        triggerCameraShake(3, 1000);
+
+        const interval = setInterval(() => {
+            count--;
+            if (!this.countdownCircle) {
+                clearInterval(interval);
+                return;
+            }
+
+            triggerCameraShake(3, 1000);
+            if (count === 2) this.countdownCircle.rotationDirection = -1;
+
+            if (count > 0) {
+                this.countdownCircle.projections.pop();
+                this.countdownCircle.element = this.getRandomElement();
+            } else if (count === 0) {
+                this.countdownCircle.projections = [];
+                this.countdownCircle.element = this.getRandomElement();
+                if (this.countdownText) {
+                    this.countdownText.textContent = 'DUEL!';
+                    this.countdownText.style.display = 'block';
+                    this.countdownText.style.animation = 'pulse 0.5s 2';
+                }
+            } else {
+                audioManager.stopClockSound();
+                audioManager.playStartSound();
+                clearInterval(interval);
+                if (this.preMatchOverlay) this.preMatchOverlay.classList.add('hidden');
+                this.countdownCircle = null;
+                this.matchState = 'active';
+                console.log("🟢 Partita attiva!");
+            }
+        }, 1000);
+    }
+
+    drawCountdownCircle(ctx) {
+        const circle = this.countdownCircle;
+        if (!circle) return;
+
+        const { x, y, radius, projections, circleRotation, projectionRotation, element } = circle;
+        const color = element ? getElementColor(element) : "#00e0ff";
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(circleRotation);
+        ctx.translate(-x, -y);
+
+        if (element) drawElementPattern(ctx, x, y, radius * 0.82, element);
+        this.drawCircleRings(ctx, x, y, radius, color, 3);
+        ctx.restore();
+
+        if (projections && projections.length > 0) {
+            drawProjectilePolygonPattern(ctx, x, y, radius * 1.2, projections.length, color, projectionRotation, projections);
         }
     }
 
+    // Due cerchi concentrici con 24 segmenti radiali (la "cornice" di ogni cerchio magico)
+    drawCircleRings(ctx, x, y, radius, color, thickness) {
+        ctx.lineWidth = thickness;
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, radius + 20, 0, 2 * Math.PI);
+        ctx.stroke();
+
+        ctx.lineWidth = 1;
+        const numSegments = 24;
+        for (let i = 0; i < numSegments; i++) {
+            const angle = (2 * Math.PI / numSegments) * i;
+            ctx.beginPath();
+            ctx.moveTo(x + Math.cos(angle) * (radius + 20), y + Math.sin(angle) * (radius + 20));
+            ctx.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+            ctx.stroke();
+        }
+    }
+
+    // ------------------------------------------------------------
+    // EFFETTI DI STATO
+    // ------------------------------------------------------------
+
+    // Movimento/controlli/stun del giocatore locale li gestisce engine.js
+    setupStatusEffectCallbacks() {
+        statusEffectManager.registerDamageCallback('player', (damage, source) => {
+            this.gameHooks.playerHealth -= damage;
+            this.saveHealthToStorage();
+            this.showDamageEffect(true);
+            triggerCameraShake(5, 150);
+            if (this.gameHooks.playerHealth <= 0) this.endMatch(false);
+        });
+
+        statusEffectManager.registerVisualCallback('player', (effectType, element) => {
+            const position = this.gameHooks.virtualMouse;
+            if (!position) return;
+            if (effectType === 'debuff_particles') {
+                createElementalDebuffParticles(element, position, this.gameHooks.activeMagicParticles);
+            } else if (effectType === 'burning') {
+                this.createBurningParticles(position);
+            }
+        });
+
+        // Gli effetti sull'avversario sono solo visivi: la sua vita la gestisce il suo client
+        statusEffectManager.registerVisualCallback('opponent', (effectType, element) => {
+            if (effectType === 'debuff_particles') {
+                createElementalDebuffParticles(element, this.opponent.virtualMouse, this.gameHooks.activeMagicParticles);
+            } else if (effectType === 'burning') {
+                this.createBurningParticles(this.opponent.virtualMouse);
+            }
+        });
+    }
+
     createBurningParticles(position) {
-        // Crea particelle di fuoco attorno al giocatore colpito
         for (let i = 0; i < 15; i++) {
             this.gameHooks.activeMagicParticles?.push({
                 x: position.x + (Math.random() - 0.5) * 30,
@@ -611,112 +425,56 @@ export class PvPManager {
                 alpha: 0.8,
                 dx: (Math.random() - 0.5) * 2,
                 dy: Math.random() * -2 - 1,
-                color: `rgba(255, ${50 + Math.random() * 50}, 0, `,
+                color: `rgba(255, ${50 + Math.random() * 50}, 0, `
             });
         }
     }
 
-    createDebuffParticles(element, position) {
-        createElementalDebuffParticles(element, position, this.gameHooks.activeMagicParticles);
-    }
+    // ------------------------------------------------------------
+    // SALUTE
+    // ------------------------------------------------------------
 
-    handleOpponentSpellRemoval(data) {
-        console.log('[DEBUG] handleOpponentSpellRemoval chiamato:', data);
-    
-        // Rimuovi l'intervallo associato all'area
-        if (this.activeSpatialIntervals && this.activeSpatialIntervals[data.areaId]) {
-            clearInterval(this.activeSpatialIntervals[data.areaId]);
-            delete this.activeSpatialIntervals[data.areaId];
-            console.log(`🛑 [SPAZIALE] Intervallo di danno avversario rimosso: ${data.areaId}`);
-        }
-    
-        // Rimuovi l'area dall'array locale delle aree avversarie
-        if (this.opponentSpazialeAreas) {
-            this.opponentSpazialeAreas = this.opponentSpazialeAreas.filter(area => area.id !== data.areaId);
-            console.log(`🗑️ [SPAZIALE] Area avversaria rimossa localmente: ${data.areaId}, Rimaste: ${this.opponentSpazialeAreas.length}`);
+    loadHealthFromStorage() {
+        try {
+            const savedHealth = localStorage.getItem(this.healthPersistenceKey);
+            if (!savedHealth) return;
+            const healthData = JSON.parse(savedHealth);
+            const opponentRole = this.playerRole === 'player1' ? 'player2' : 'player1';
+            if (typeof healthData[this.playerRole] === 'number') this.gameHooks.playerHealth = healthData[this.playerRole];
+            if (typeof healthData[opponentRole] === 'number') this.opponent.health = healthData[opponentRole];
+        } catch (error) {
+            console.error('❌ Errore caricamento salute:', error);
         }
     }
 
-    handlePlayerDisconnect(data) {
-        console.log('🚪 Avversario disconnesso:', data.reason);
-        
-        // Il giocatore corrente vince automaticamente
-        this.showDisconnectionMessage();
-        this.endMatch(true, 'opponent_disconnect');
+    saveHealthToStorage() {
+        const opponentRole = this.playerRole === 'player1' ? 'player2' : 'player1';
+        localStorage.setItem(this.healthPersistenceKey, JSON.stringify({
+            [this.playerRole]: this.gameHooks.playerHealth,
+            [opponentRole]: this.opponent.health
+        }));
     }
 
-    showDisconnectionMessage() {
-        // Mostra messaggio di vittoria per disconnessione avversario
-        const message = "L'avversario si è disconnesso. Hai vinto! 🎉";
-        
-        // Crea overlay per il messaggio
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            font-weight: bold;
-            z-index: 10000;
-            text-align: center;
-        `;
-        overlay.textContent = message;
-        document.body.appendChild(overlay);
-        
-        // Rimuovi overlay dopo 3 secondi
-        setTimeout(() => {
-            overlay.remove();
-        }, 3000);
-    }
-
-    handleGameUpdate(data) {
-        if (data.gameState) {
-            this.gameState = data.gameState;
-        }
-    }
+    // ------------------------------------------------------------
+    // MESSAGGI DELL'AVVERSARIO
+    // ------------------------------------------------------------
 
     handleOpponentMove(data) {
-        
         const prevPosition = { ...this.opponent.virtualMouse };
-        
         this.opponent.virtualMouse = data.virtualMouse;
         this.opponent.position = data.position || data.virtualMouse;
-        
-        // Aggiorna entità di collisione avversario
+
         if (this.opponentEntity) {
-            // Calcola velocità per le collisioni
-            const dx = this.opponent.virtualMouse.x - prevPosition.x;
-            const dy = this.opponent.virtualMouse.y - prevPosition.y;
-            
             this.opponentEntity.x = this.opponent.virtualMouse.x;
             this.opponentEntity.y = this.opponent.virtualMouse.y;
-            this.opponentEntity.velocity.x = dx * 2; // Amplifica per effetti più visibili
-            this.opponentEntity.velocity.y = dy * 2;
-            
-        }
-        
-        // Aggiorna hitbox avversario
-        this.opponentHitbox.x = this.opponent.position.x - 20;
-        this.opponentHitbox.y = this.opponent.position.y - 30;
-    }
-
-    handleOpponentCasting(data) {
-        this.opponent.casting = data.casting;
-        if (data.castingPoints) {
-            this.opponent.castingPoints = data.castingPoints;
+            // Velocità amplificata per rendere visibili le collisioni
+            this.opponentEntity.velocity.x = (this.opponent.virtualMouse.x - prevPosition.x) * 2;
+            this.opponentEntity.velocity.y = (this.opponent.virtualMouse.y - prevPosition.y) * 2;
         }
     }
 
     handleOpponentProjectile(data) {
-        // Crea proiettile avversario nel sistema di proiettili principale
-        const projectile = {
+        this.gameHooks.projectiles?.push({
             x: data.start.x,
             y: data.start.y,
             vx: data.velocity.x,
@@ -725,591 +483,260 @@ export class PvPManager {
             alpha: 1,
             color: data.color || 'rgba(255, 100, 100,',
             tipo: data.tipo || 'proiettile',
-            owner: 'opponent', // Identifica come proiettile nemico
-            element: data.element
-        };
-        
-        // Aggiungi al sistema principale di proiettili
-        if (this.gameHooks.projectiles) {
-            this.gameHooks.projectiles.push(projectile);
-        }
-        
-    }
-
-    handleOpponentMagicCircle(data) {
-        // Se data.magicCircle è null, rimuovi il cerchio magico avversario
-        if (data.magicCircle === null) {
-            this.opponent.magicCircle = null;
-            return;
-        }
-        
-        // Aggiorna cerchio magico avversario
-        this.opponent.magicCircle = data.magicCircle;
+            owner: 'opponent',
+            element: data.element || null
+        });
     }
 
     handleOpponentSpell(data) {
-    console.log('[DEBUG] handleOpponentSpell chiamato:', data);
-        // Gestione magia spaziale con danno periodico
-        if (data.spellType === 'spaziale' && data.position && data.polygonPoints) {
-            // USA L'ID DELL'AREA invece del timestamp
-            const spellId = data.areaId || `${data.spellType}_${data.timestamp}`;
-            if (!this.activeSpatialIntervals) this.activeSpatialIntervals = {};
-            if (!this.opponentSpazialeAreas) this.opponentSpazialeAreas = [];
-
-            // Controlla se l'area esiste già per evitare duplicati
-            if (this.activeSpatialIntervals[spellId]) {
-                console.log(`[DEBUG] Area spaziale avversaria ${spellId} già attiva.`);
-                return; // Esci se già presente
-            }
-
-            this.opponentSpazialeAreas.push({
-                id: spellId,
-                points: data.polygonPoints,
-                color: data.color || '#ff6666', // Usa un colore standard per l'avversario
-                owner: 'opponent'
-            });
-            console.log(`[SPAZIALE] Aggiunta area avversaria ${spellId}, Totale: ${this.opponentSpazialeAreas.length}`);
-    
-            // Calcola il danno base in base all'area (simile a come fai per le tue aree)
-            const areaValue = this.calculatePolygonArea(data.polygonPoints);
-            const baseDamage = 0.5 * (areaValue / 700); // Usa la stessa formula del client
-            const damagePerTick = baseDamage; // Potrebbe essere scalato in base al livello
-    
-            let ticks = 0;
-            const maxTicks = 1000; // Limite opzionale per sicurezza
-    
-            this.activeSpatialIntervals[spellId] = setInterval(() => {
-                if (ticks >= maxTicks) {
-                    console.log(`[SPAZIALE][TICK] Limite tick raggiunto per area ${spellId}, fermando.`);
-                    clearInterval(this.activeSpatialIntervals[spellId]);
-                    delete this.activeSpatialIntervals[spellId];
-                    // Rimuovi anche dall'array locale se non lo fa handleOpponentSpellRemoval
-                    this.opponentSpazialeAreas = this.opponentSpazialeAreas.filter(area => area.id !== spellId);
-                    return;
-                }
-    
-                const playerPos = this.gameHooks.virtualMouse; // Usa la posizione del giocatore locale
-                if (playerPos && this.isPointInPolygon(playerPos, data.polygonPoints)) {
-                    const healthBefore = this.gameHooks.playerHealth;
-                    this.gameHooks.playerHealth -= damagePerTick;
-                    const healthAfter = this.gameHooks.playerHealth;
-                    this.showDamageEffect(damagePerTick, true);
-                    console.log(`💥 [SPAZIALE][TICK] Player colpito da magia spaziale avversaria! Area: ${spellId} Tick: ${ticks} Danno: ${damagePerTick}| Vita: ${healthBefore} → ${healthAfter}`);
-                    if (this.gameHooks.playerHealth <= 0) {
-                        clearInterval(this.activeSpatialIntervals[spellId]);
-                        delete this.activeSpatialIntervals[spellId];
-                        this.opponentSpazialeAreas = this.opponentSpazialeAreas.filter(area => area.id !== spellId);
-                        this.endMatch(false);
-                    }
-                } else {
-                     console.log(`[DEBUG] Player fuori dall'area spaziale avversaria ${spellId}. Pos: ${playerPos.x},${playerPos.y}`);
-                }
-                ticks++;
-            }, 500); // Ogni 500ms
-
-        } else if (data.spellType && this.gameHooks.activeMagicParticles) {
-            this.createOpponentSpellEffect(data);
+        if (data.spellType !== 'spaziale' || !data.polygonPoints) {
+            if (data.position) this.createOpponentSpellEffect(data.position);
+            return;
         }
+
+        const spellId = data.areaId || `spaziale_${data.timestamp}`;
+        if (this.activeSpatialIntervals[spellId]) return; // già presente
+
+        this.opponentSpazialeAreas.push({ id: spellId, points: data.polygonPoints });
+
+        // Danno periodico finché il giocatore resta dentro l'area avversaria
+        const damagePerTick = 0.5 * (this.calculatePolygonArea(data.polygonPoints) / 700);
+        let ticks = 0;
+        const maxTicks = 1000;
+
+        this.activeSpatialIntervals[spellId] = setInterval(() => {
+            if (++ticks > maxTicks) {
+                this.removeOpponentArea(spellId);
+                return;
+            }
+            if (this.matchState !== 'active') return;
+            const playerPos = this.gameHooks.virtualMouse;
+            if (playerPos && this.isPointInPolygon(playerPos, data.polygonPoints)) {
+                this.gameHooks.playerHealth -= damagePerTick;
+                this.saveHealthToStorage();
+                this.showDamageEffect(true);
+                if (this.gameHooks.playerHealth <= 0) this.endMatch(false);
+            }
+        }, 500);
     }
 
-    calculatePolygonArea(vertices) {
-        let area = 0;
-        let j = vertices.length - 1;
-
-        for (let i = 0; i < vertices.length; i++) {
-            area += (vertices[j].x + vertices[i].x) * (vertices[j].y - vertices[i].y);
-            j = i;
+    removeOpponentArea(areaId) {
+        if (this.activeSpatialIntervals[areaId]) {
+            clearInterval(this.activeSpatialIntervals[areaId]);
+            delete this.activeSpatialIntervals[areaId];
         }
-
-        return Math.abs(area / 2);
-    }
-
-    isPointInPolygon(point, polygon) {
-        let inside = false;
-        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-            if (((polygon[i].y > point.y) !== (polygon[j].y > point.y)) &&
-                (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)) {
-                inside = !inside;
-            }
-        }
-        return inside;
+        this.opponentSpazialeAreas = this.opponentSpazialeAreas.filter(area => area.id !== areaId);
     }
 
     handleProjectileHit(data) {
         const hitId = `${data.projectileId || 'unknown'}_${data.timestamp}`;
-        if (this.processedHits.has(hitId)) {
-            console.log(`🔄 [SKIP] Hit già processato: ${hitId}`);
-            return;
-        }
-
-        // Marca questo hit come processato
+        if (this.processedHits.has(hitId)) return;
         this.processedHits.add(hitId);
-
-        // Pulisci hits vecchi (mantieni solo gli ultimi 100)
         if (this.processedHits.size > 100) {
-            const oldHits = Array.from(this.processedHits).slice(0, -50);
-            oldHits.forEach(id => this.processedHits.delete(id));
+            Array.from(this.processedHits).slice(0, -50).forEach(id => this.processedHits.delete(id));
         }
 
         if (data.target === this.playerRole) {
-            const healthBefore = this.gameHooks.playerHealth;
             this.gameHooks.playerHealth -= data.damage;
-            const healthAfter = this.gameHooks.playerHealth;
-
-            console.log(`💥 [SERVER] Player colpito! ID: ${data.projectileId} | Danno: ${data.damage} | Vita: ${healthBefore} → ${healthAfter} | Elemento: ${data.element || 'nessuno'}`);
-
-            // Salva salute aggiornata
             this.saveHealthToStorage();
-
-            // Il giocatore locale è stato colpito
-            this.showDamageEffect(data.damage, true);
-
-            // ⭐ NUOVO: Applica effetto elementale se presente
-            if (data.element) {
-                console.log(`✨ Applicando effetto elementale ${data.element} al player`);
-                applyElementalHit(data.element, 'player');
-            }
-
-            if (this.gameHooks.playerHealth <= 0) {
-                this.endMatch(false);
-            }
+            this.showDamageEffect(true);
+            if (data.element) applyElementalHit(data.element, 'player');
+            if (this.gameHooks.playerHealth <= 0) this.endMatch(false);
         } else {
-            // L'avversario è stato colpito
-            const healthBefore = this.opponent.health;
             this.opponent.health -= data.damage;
-            const healthAfter = this.opponent.health;
-
-            console.log(`💥 [SERVER] Opponent colpito! Danno: ${data.damage} | Vita: ${healthBefore} → ${healthAfter} | Elemento: ${data.element || 'nessuno'}`);
-
-            this.showDamageEffect(data.damage, false);
-
-            // ⭐ NUOVO: Applica effetto elementale se presente
-            if (data.element) {
-                console.log(`✨ Applicando effetto elementale ${data.element} all'opponent`);
-                applyElementalHit(data.element, 'opponent');
-            }
-
-            if (this.opponent.health <= 0) {
-                this.endMatch(true);
-            }
+            this.showDamageEffect(false);
+            if (data.element) applyElementalHit(data.element, 'opponent');
         }
     }
 
     handleGameEnd(data) {
-        const won = data.winner === this.playerRole;
-        this.endMatch(won);
+        // winner null = tempo scaduto (pareggio)
+        const won = data.winner ? data.winner === this.playerRole : null;
+        this.endMatch(won, data.reason);
     }
 
-    sendSpellRemoval(spellData) {
-        if (!this.isConnected) {
-            console.log('[DEBUG] Non connesso, impossibile inviare rimozione spell');
-            return;
-        }
+    // ------------------------------------------------------------
+    // INVIO AL SERVER
+    // ------------------------------------------------------------
 
-        const data = {
+    sendSpellRemoval(spellData) {
+        this.send({
             type: 'spellRemoval',
-            matchId: this.matchData.matchId,
-            playerRole: this.playerRole,
             spellType: spellData.type,
             position: spellData.position,
             polygonPoints: spellData.polygonPoints,
-            areaId: spellData.areaId, 
-            timestamp: Date.now()
-        };
-
-        console.log('[DEBUG] Invio rimozione spell al server:', data);
-        this.ws.send(JSON.stringify(data));
+            areaId: spellData.areaId
+        });
     }
 
-    // METODI DI SINCRONIZZAZIONE CON MAIN.JS
-
-    /**
-     * Chiamato dal loop principale di main.js per sincronizzare lo stato
-     */
-    syncWithMainGame(gameState) {
-        const now = Date.now();
-
-        updateStatusEffects(1 / 60);
-
-        this.opponentCircleRotation += 0.003;
-        
-        if (this.matchState === 'countdown' && this.countdownCircle) {
-            // Calcola la rotazione per 1 giro al secondo (2*PI radianti in 60 frames)
-            const deltaRotationPerFrame = (2 * Math.PI) / 3600.0;
-            
-            const direction = this.countdownCircle.rotationDirection || 1;
-
-            this.countdownCircle.circleRotation += (deltaRotationPerFrame * direction);
-            // Rotazione opposta e più veloce per le proiezioni, come da richiesta
-            this.countdownCircle.projectionRotation -= (deltaRotationPerFrame * 2 * direction);
-        }
-
-        if (this.matchState !== 'active') {
-            return; 
-        }
-
-        // Aggiorna riferimenti ai sistemi di main.js
-        this.gameHooks.virtualMouse = gameState.virtualMouse;
-        this.gameHooks.projectiles = gameState.projectiles;
-        this.gameHooks.magicCircle = gameState.magicCircle;
-        this.gameHooks.activeMagicParticles = gameState.activeMagicParticles;
-        
-        // Invia aggiornamenti al server ogni 33ms (30 FPS)
-        if (now - this.lastUpdateSent > this.updateInterval && this.isConnected) {
-            this.sendPlayerUpdate(gameState);
-            this.lastUpdateSent = now;
-        }
-        
-        // Verifica collisioni con proiettili
-        this.checkProjectileCollisions(gameState.projectiles);
-        
-        // Sincronizza cerchio magico se cambiato
-        this.syncMagicCircle(gameState.magicCircle);
-        
-        // Sincronizza casting
-        this.syncCasting(gameState.casting, gameState.castingPoints);
+    sendSpellCast(spellData) {
+        this.send({
+            type: 'spellCast',
+            spellType: spellData.type,
+            position: spellData.position,
+            polygonPoints: spellData.polygonPoints,
+            element: spellData.element,
+            areaId: spellData.areaId
+        });
     }
 
-    sendPlayerUpdate(gameState) {
-        if (!this.isConnected || !gameState.virtualMouse) return;
-
-        const updateData = {
-            type: 'playerMove',
-            matchId: this.matchData.matchId,
-            playerRole: this.playerRole,
-            virtualMouse: {
-                x: gameState.virtualMouse.x,
-                y: gameState.virtualMouse.y
-            },
-            position: {
-                x: gameState.virtualMouse.x,
-                y: gameState.virtualMouse.y
-            },
-            timestamp: Date.now()
-        };
-
-        this.ws.send(JSON.stringify(updateData));
-    }
-
-    syncMagicCircle(magicCircle) {
-        // Invia aggiornamenti del cerchio magico solo se cambiato
-        const currentState = magicCircle ? {
-            x: magicCircle.x,
-            y: magicCircle.y,
-            radius: magicCircle.radius,
-            element: magicCircle.elemento,
-            projections: magicCircle.projections?.length || 0
-        } : null; // Gestisce il caso null
-
-        const stateChanged = JSON.stringify(currentState) !== JSON.stringify(this.lastMagicCircleState);
-
-        if (stateChanged && this.isConnected) {
-            this.sendMagicCircleUpdate(magicCircle);
-            this.lastMagicCircleState = currentState;
-        }
-    }
-
-    syncCasting(casting, castingPoints) {
-        if (!this.isConnected) return;
-        
-        // Invia stato di casting se cambiato
-        if (this.lastCastingState !== casting) {
-            this.ws.send(JSON.stringify({
-                type: 'playerCasting',
-                matchId: this.matchData.matchId,
-                playerRole: this.playerRole,
-                casting: casting,
-                castingPoints: castingPoints || [],
-                timestamp: Date.now()
-            }));
-            this.lastCastingState = casting;
-        }
-    }
-
-    sendProjectileLaunch(projectileData) {
-        if (!this.isConnected) return;
-
-        // Calcola velocità da start e end
-        const dx = projectileData.end.x - projectileData.start.x;
-        const dy = projectileData.end.y - projectileData.start.y;
-        const dist = Math.hypot(dx, dy);
-        const speed = 16; // Stesso di main.js
-        
-        const velocity = {
-            x: (dx / dist) * speed,
-            y: (dy / dist) * speed
-        };
-
-        const data = {
-            type: 'projectileLaunch',
-            matchId: this.matchData.matchId,
-            playerRole: this.playerRole,
-            start: projectileData.start,
-            velocity: velocity,
-            color: projectileData.color,
-            tipo: projectileData.tipo,
-            element: projectileData.element,
-            maxLife: Math.max(30, Math.floor(dist / speed)),
-            timestamp: Date.now()
-        };
-
-        this.ws.send(JSON.stringify(data));
-        console.log(`🚀 Proiettile inviato: ${projectileData.tipo}`);
+    sendProjectileLaunch({ start, velocity, color, tipo, element, maxLife }) {
+        this.send({ type: 'projectileLaunch', start, velocity, color, tipo, element, maxLife });
     }
 
     sendMagicCircleUpdate(magicCircle) {
-        if (!this.isConnected) return;
-
-        const data = {
+        this.send({
             type: 'magicCircleUpdate',
-            matchId: this.matchData.matchId,
-            playerRole: this.playerRole,
             magicCircle: magicCircle ? {
                 x: magicCircle.x,
                 y: magicCircle.y,
                 radius: magicCircle.radius,
                 element: magicCircle.elemento,
                 projections: magicCircle.projections
-            } : null, // Invia null se il cerchio è stato rimosso
-            timestamp: Date.now()
-        };
-
-        this.ws.send(JSON.stringify(data));
+            } : null
+        });
     }
 
-    sendSpellCast(spellData) {
-        if (!this.isConnected) {
-            console.log('[DEBUG] Non connesso, impossibile inviare spell');
-            return;
+    // ------------------------------------------------------------
+    // SINCRONIZZAZIONE CON ENGINE.JS (chiamata a ogni frame)
+    // ------------------------------------------------------------
+
+    syncWithMainGame(gameState) {
+        this.opponentCircleRotation += 0.003;
+
+        if (this.matchState === 'countdown' && this.countdownCircle) {
+            const deltaRotationPerFrame = (2 * Math.PI) / 3600.0;
+            const direction = this.countdownCircle.rotationDirection || 1;
+            this.countdownCircle.circleRotation += deltaRotationPerFrame * direction;
+            this.countdownCircle.projectionRotation -= deltaRotationPerFrame * 2 * direction;
         }
 
-        const data = {
-            type: 'spellCast',
-            matchId: this.matchData.matchId,
-            playerRole: this.playerRole,
-            spellType: spellData.type,
-            position: spellData.position,
-            polygonPoints: spellData.polygonPoints, // AGGIUNGI QUESTO invece di radius
-            element: spellData.element,
-            areaId: spellData.areaId,
-            timestamp: Date.now()
-        };
+        if (this.matchState !== 'active') return;
 
-        this.ws.send(JSON.stringify(data));
+        this.gameHooks.virtualMouse = gameState.virtualMouse;
+        this.gameHooks.projectiles = gameState.projectiles;
+        this.gameHooks.magicCircle = gameState.magicCircle;
+        this.gameHooks.activeMagicParticles = gameState.activeMagicParticles;
+
+        const now = Date.now();
+        if (now - this.lastUpdateSent > this.updateInterval) {
+            this.send({
+                type: 'playerMove',
+                virtualMouse: { x: gameState.virtualMouse.x, y: gameState.virtualMouse.y },
+                position: { x: gameState.virtualMouse.x, y: gameState.virtualMouse.y }
+            });
+            this.lastUpdateSent = now;
+        }
+
+        this.checkProjectileCollisions(gameState.projectiles);
+        this.syncMagicCircle(gameState.magicCircle);
+        this.syncCasting(gameState.casting, gameState.castingPoints);
     }
 
+    syncMagicCircle(magicCircle) {
+        const currentState = magicCircle ? {
+            x: magicCircle.x,
+            y: magicCircle.y,
+            radius: magicCircle.radius,
+            element: magicCircle.elemento,
+            projections: magicCircle.projections.join(',')
+        } : null;
+
+        if (JSON.stringify(currentState) !== JSON.stringify(this.lastMagicCircleState)) {
+            this.sendMagicCircleUpdate(magicCircle);
+            this.lastMagicCircleState = currentState;
+        }
+    }
+
+    syncCasting(casting, castingPoints) {
+        if (this.lastCastingState === casting) return;
+        this.send({ type: 'playerCasting', casting, castingPoints: castingPoints || [] });
+        this.lastCastingState = casting;
+    }
+
+    // Chi spara decide se ha colpito: l'hit viene inviato al server, che lo inoltra al bersaglio
     checkProjectileCollisions(projectiles) {
         if (!projectiles || !this.opponent.isAlive) return;
 
-        for (let i = projectiles.length - 1; i >= 0; i--) {
-            const projectile = projectiles[i];
-            
+        for (const projectile of projectiles) {
             if (projectile.hit) continue;
 
-            // Solo proiettili nemici possono danneggiare il giocatore locale
             if (projectile.owner === 'opponent') {
-                if (this.isProjectileHittingPlayer(projectile, this.gameHooks.virtualMouse)) {
-                    const damage = this.calculateDamage(projectile);
-                    
-                    console.log(`🎯 [DETECTION] Proiettile nemico colpisce il player. Danno: ${damage}`);
-                    
+                // Colpito dall'avversario: qui solo feedback visivo (il danno arriva dal server)
+                if (this.isProjectileHitting(projectile, this.gameHooks.virtualMouse)) {
                     projectile.hit = true;
-
-                    // Applica danno e effetti localmente (per feedback immediato)
-                    const healthBefore = this.gameHooks.playerHealth;
-                    // this.gameHooks.playerHealth -= damage;
-                    const healthAfter = this.gameHooks.playerHealth;
-                    
-                    console.log(`💥 [LOCAL] Player colpito! Danno: ${damage} | Vita: ${healthBefore} → ${healthAfter}`);
-                    
-                    this.showDamageEffect(damage, true);
+                    this.showDamageEffect(true);
                     triggerCameraShake(10, 250);
                     updateRedOverlay(this.gameHooks.playerHealth, 100);
-                    
-                    if (this.gameHooks.playerHealth <= 0) {
-                        console.log("💀 [LOCAL] PLAYER MORTO!");
-                        this.endMatch(false);
-                    }
-                    
-                    // projectiles.splice(i, 1); // Rimuovi proiettile
                 }
-            }
-            // Solo proiettili locali possono danneggiare l'avversario
-            else if (projectile.owner === 'local') {
-                if (this.isProjectileHittingPlayer(projectile, this.opponent.position)) {
-                    const damage = this.calculateDamage(projectile);
-                    // this.handleOpponentHit(projectile, damage);
-                    // projectiles.splice(i, 1); // Rimuovi proiettile
-
+            } else if (projectile.owner === 'local') {
+                if (this.isProjectileHitting(projectile, this.opponent.position)) {
                     projectile.hit = true;
-
-                    if (this.isConnected) {
-                        this.ws.send(JSON.stringify({
-                            type: 'projectileHit',
-                            matchId: this.matchData.matchId,
-                            target: this.playerRole === 'player1' ? 'player2' : 'player1',
-                            damage: damage,
-                            element: projectile.element, // ⭐ IMPORTANTE: Questo invia l'elemento
-                            timestamp: Date.now()
-                        }));
-                    }
+                    this.send({
+                        type: 'projectileHit',
+                        target: this.playerRole === 'player1' ? 'player2' : 'player1',
+                        damage: this.calculateDamage(projectile),
+                        element: projectile.element
+                    });
                 }
             }
         }
     }
 
-    isProjectileHittingPlayer(projectile, playerPosition) {
-        const distance = Math.hypot(
-            projectile.x - playerPosition.x,
-            projectile.y - playerPosition.y
-        );
-        return distance < 30; // Raggio di collisione
+    isProjectileHitting(projectile, position) {
+        if (!position) return false;
+        return Math.hypot(projectile.x - position.x, projectile.y - position.y) < HIT_RADIUS;
     }
 
     calculateDamage(projectile) {
-        let baseDamage = 1;
-        
-        // Modifica danno in base al tipo di proiezione
-        switch (projectile.tipo) {
-            case 'proiettile':
-                baseDamage = 15;
-                break;
-            case 'spaziale':
-                baseDamage = 2;
-                break;
-            default:
-                baseDamage = 10;
-        }
-        
-        // Modifica danno in base all'elemento
-        if (projectile.element) {
-            switch (projectile.element) {
-                case 'fuoco':
-                    baseDamage *= 1.1;
-                    break;
-                case 'acqua':
-                    baseDamage *= 1.2;
-                    break;
-                case 'aria':
-                    baseDamage *= 1.2;
-                    break;
-                case 'terra':
-                    baseDamage *= 1.4;
-                    break;
-            }
-        }
-        
-        return Math.floor(baseDamage);
+        const baseByType = { proiettile: 15, spaziale: 2 };
+        const multiplierByElement = { fuoco: 1.1, acqua: 1.2, aria: 1.2, terra: 1.4 };
+        const baseDamage = baseByType[projectile.tipo] ?? 10;
+        return Math.floor(baseDamage * (multiplierByElement[projectile.element] || 1));
     }
 
-    handleLocalPlayerHit(projectile, damage) {
-        const healthBefore = this.gameHooks.playerHealth;
-        // this.gameHooks.playerHealth -= damage;
-        this.showDamageEffect(damage, true);
-        const healthAfter = this.gameHooks.playerHealth;
-        
-        console.log(`💥 [PLAYER] Colpito! Danno: ${damage} | Vita: ${healthBefore} → ${healthAfter}`);
+    // ------------------------------------------------------------
+    // RENDERING (chiamato da engine.js)
+    // ------------------------------------------------------------
 
-        triggerCameraShake(10, 250);
-        updateRedOverlay(this.gameHooks.playerHealth, 100);
-        console.log(`💥 Colpito! Danno: ${damage}, Salute rimanente: ${this.gameHooks.playerHealth}`);
-        
-        if (this.gameHooks.playerHealth <= 0) {
-            this.endMatch(false);
-        }
-    }
-
-    handleOpponentHit(projectile, damage) {
-        // this.opponent.health -= damage;
-        this.showDamageEffect(damage, false);
-        
-        // Invia hit al server
-        if (this.isConnected) {
-            this.ws.send(JSON.stringify({
-                type: 'projectileHit',
-                matchId: this.matchData.matchId,
-                target: this.playerRole === 'player1' ? 'player2' : 'player1',
-                damage: damage,
-                element: projectile.element, // ⭐ IMPORTANTE: Questo invia l'elemento
-                timestamp: Date.now()
-            }));
-        }
-        
-        console.log(`🎯 Avversario colpito! Danno: ${damage}, Salute rimanente: ${this.opponent.health}`);
-        
-        if (this.opponent.health <= 0) {
-            this.endMatch(true);
-        }
-    }
-
-    // METODI DI RENDERING INTEGRATI
-
-    /**
-     * Chiamato dal loop di rendering di main.js per disegnare elementi PvP
-     */
     renderPvPElements(ctx) {
-        if (!this.isActive()) return;
-    
         if (this.matchState === 'countdown' && this.countdownCircle) {
             this.drawCountdownCircle(ctx);
         }
-
-        // Disegna avversario con la stessa grafica del player ma rosso
         this.drawOpponent(ctx);
-    
-        // Disegna cerchio magico avversario
-        if (this.opponent.magicCircle) {
-            this.drawOpponentMagicCircle(ctx);
-        }
-    
-        // Disegna casting dell'avversario
-        if (this.opponent.casting && this.opponent.castingPoints) {
-            this.drawOpponentCasting(ctx);
-        }
-    
-        // Disegna PROIETTILI avversari (se gestiti qui)
-        // this.drawOpponentProjectiles(ctx); // Se non gestiti altrove
-    
-        // *** AGGIUNGI QUESTA LINEA ***
+        if (this.opponent.magicCircle) this.drawOpponentMagicCircle(ctx);
+        if (this.opponent.casting) this.drawOpponentCasting(ctx);
         this.drawOpponentSpazialeAreas(ctx);
     }
 
     drawOpponentSpazialeAreas(ctx) {
-        if (!this.opponentSpazialeAreas || this.opponentSpazialeAreas.length === 0) return;
+        if (this.opponentSpazialeAreas.length === 0) return;
 
         ctx.save();
-        // Usa un colore diverso per distinguere le aree avversarie
-        const baseColor = 'rgba(255, 100, 100'; // Rosso per l'avversario
-        const alpha = 0.15; // Leggermente piu' trasparente?
-
         for (const area of this.opponentSpazialeAreas) {
             if (!area.points || area.points.length < 3) continue;
-
-            // Disegna il contorno
             ctx.beginPath();
             ctx.moveTo(area.points[0].x, area.points[0].y);
             for (let i = 1; i < area.points.length; i++) {
                 ctx.lineTo(area.points[i].x, area.points[i].y);
             }
             ctx.closePath();
-            ctx.strokeStyle = baseColor + ', 0.6)'; // Contorno piu' visibile
+            ctx.strokeStyle = 'rgba(255, 100, 100, 0.6)';
             ctx.lineWidth = 2;
             ctx.stroke();
-
-            // Disegna il riempimento
-            ctx.fillStyle = baseColor + `, ${alpha})`;
+            ctx.fillStyle = 'rgba(255, 100, 100, 0.15)';
             ctx.fill();
         }
         ctx.restore();
     }
 
+    // Mouse virtuale dell'avversario: come quello del giocatore ma rosso
     drawOpponent(ctx) {
-        const pos = this.opponent.virtualMouse; // Usa virtualMouse invece di position
-        // Disegna virtual mouse dell'avversario IDENTICO al player ma rosso
+        const pos = this.opponent.virtualMouse;
         ctx.save();
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, 12, 0, 2 * Math.PI);
-        ctx.strokeStyle = "#ff4444"; // Rosso invece di azzurro
+        ctx.strokeStyle = "#ff4444";
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.beginPath();
@@ -1321,149 +748,23 @@ export class PvPManager {
         ctx.restore();
     }
 
-    drawOpponentProjectilePattern(ctx, x, y, r, color) {
-        ctx.save();
-        ctx.translate(x, y);
-        
-        const R = r * 0.3;
-        
-        // Cerchio principale con colore avversario
-        ctx.beginPath();
-        ctx.arc(0, 0, R, 0, 2 * Math.PI);
-        ctx.lineWidth = 4.2;
-        ctx.strokeStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 12;
-        ctx.globalAlpha = 0.85;
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 1;
-        
-        // Anello interno sottile
-        ctx.beginPath();
-        ctx.arc(0, 0, R * 0.63, 0, 2 * Math.PI);
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.5;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        
-        // Anello esterno sottile
-        ctx.beginPath();
-        ctx.arc(0, 0, R * 1, 0, 2 * Math.PI);
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = color;
-        ctx.globalAlpha = 0.5;
-        ctx.stroke();
-        ctx.globalAlpha = 1;
-        
-        // Glifi magici (piccoli archi)
-        for (let i = 0; i < 6; i++) {
-            let angle = (Math.PI * 2 / 6) * i;
-            ctx.save();
-            ctx.rotate(angle);
-            ctx.beginPath();
-            ctx.arc(R * 0.82, 0, R * 0.1, 0, Math.PI);
-            ctx.lineWidth = 1.1;
-            ctx.strokeStyle = color;
-            ctx.globalAlpha = 0.7;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-            ctx.restore();
-        }
-        
-        // Punti decorativi interni
-        for (let i = 0; i < 8; i++) {
-            let angle = (Math.PI * 2 / 8) * i;
-            let px = Math.cos(angle) * r * 0.82 * 0.3;
-            let py = Math.sin(angle) * r * 0.82 * 0.3;
-            ctx.beginPath();
-            ctx.arc(px, py, 2, 0, 2 * Math.PI);
-            ctx.fillStyle = color;
-            ctx.globalAlpha = 0.7;
-            ctx.fill();
-            ctx.globalAlpha = 1;
-        }
-        
-        ctx.restore();
-    }
-
-    drawOpponentSpazialePattern(ctx, x, y, r, color, rotation) {
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(rotation);
-
-        // Cerchi concentrici con colore avversario
-        for (let i = 1; i <= 4; i++) {
-            ctx.beginPath();
-            ctx.arc(0, 0, r * (0.2 + i * 0.15), 0, 2 * Math.PI);
-            ctx.strokeStyle = color;
-            ctx.globalAlpha = 0.4 + i * 0.1;
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-        }
-        
-        // Pattern di onde spaziali
-        const waves = 12;
-        for (let i = 0; i < waves; i++) {
-            const angle = (Math.PI * 2 / waves) * i;
-            ctx.save();
-            ctx.rotate(angle);
-            
-            ctx.beginPath();
-            ctx.moveTo(r * 0.2, 0);
-            
-            // Curva ondulata
-            for (let j = 0; j < 10; j++) {
-                const t = j / 9;
-                const waveX = r * (0.2 + t * 0.6);
-                const waveY = Math.sin(t * Math.PI * 3) * r * 0.1;
-                ctx.lineTo(waveX, waveY);
-            }
-            
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 1.5;
-            ctx.globalAlpha = 0.6;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-            ctx.restore();
-        }
-        
-        // Centro luminoso
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.15, 0, 2 * Math.PI);
-        ctx.fillStyle = color.replace(')', ', 0.3)');
-        ctx.fill();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        
-        ctx.restore();
-    }
-
     drawOpponentMagicCircle(ctx) {
         const circle = this.opponent.magicCircle;
-        if (!circle) return;
-        
         const { x, y, radius, element } = circle;
-        const thickness = 3;
-        
+        const color = element ? getOpponentElementColor(element) : OPPONENT_COLOR;
+
         ctx.save();
-        // Applica la stessa rotazione del player
         ctx.translate(x, y);
         ctx.rotate(this.opponentCircleRotation);
         ctx.translate(-x, -y);
 
-        // Glow radiale per avversario
         if (element) {
-            const opponentColor = this.getOpponentElementColor(element);
             const glowRadius = radius + 24;
             const grad = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
-            grad.addColorStop(0, opponentColor + 'cc');
-            grad.addColorStop(0.45, opponentColor + '44');
-            grad.addColorStop(0.85, opponentColor + '11');
-            grad.addColorStop(1, opponentColor + '00');
+            grad.addColorStop(0, color + 'cc');
+            grad.addColorStop(0.45, color + '44');
+            grad.addColorStop(0.85, color + '11');
+            grad.addColorStop(1, color + '00');
             ctx.save();
             ctx.globalAlpha = 0.45;
             ctx.beginPath();
@@ -1471,654 +772,137 @@ export class PvPManager {
             ctx.fillStyle = grad;
             ctx.fill();
             ctx.restore();
+
+            drawElementPattern(ctx, x, y, radius * 0.82, element, color);
         }
 
-        // Pattern elementale per avversario
-        if (element) {
-            this.drawOpponentElementPattern(ctx, x, y, radius * 0.82, element);
-        }
-
-        // Pattern di proiezione per avversario
-        let projColor = element ? this.getOpponentElementColor(element) : "#ff6666";
         if (circle.projections && circle.projections.length > 0) {
-            this.drawOpponentProjectilePolygonPattern(
-                ctx,
-                x,
-                y,
-                radius * 1.2,
-                circle.projections.length,
-                projColor,
-                -2 * this.opponentCircleRotation, // Stessa rotazione del player
-                circle.projections
-            );
+            drawProjectilePolygonPattern(ctx, x, y, radius * 1.2, circle.projections.length, color,
+                -2 * this.opponentCircleRotation, circle.projections);
         }
 
-        // Cerchi principali
-        ctx.lineWidth = thickness;
-        ctx.strokeStyle = element ? this.getOpponentElementColor(element) : "#ff6666";
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, 2 * Math.PI);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(x, y, radius + 20, 0, 2 * Math.PI);
-        ctx.stroke();
-
-        // Segmenti radiali (identici al player)
-        ctx.lineWidth = 1;
-        const numSegments = 24;
-        for (let i = 0; i < numSegments; i++) {
-            const angle = (2 * Math.PI / numSegments) * i;
-            const innerX = x + Math.cos(angle) * radius;
-            const innerY = y + Math.sin(angle) * radius;
-            const outerX = x + Math.cos(angle) * (radius + 20);
-            const outerY = y + Math.sin(angle) * (radius + 20);
-            ctx.beginPath();
-            ctx.moveTo(outerX, outerY);
-            ctx.lineTo(innerX, innerY);
-            ctx.stroke();
-        }
+        this.drawCircleRings(ctx, x, y, radius, color, 3);
         ctx.restore();
 
-        // Particelle fluttuanti attorno al cerchio avversario (identiche al player)
+        // Particelle fluttuanti attorno al cerchio
         for (let i = 0; i < 4; i++) {
             const angle = Math.random() * Math.PI * 2;
             const dist = radius + 10 + Math.random() * 15;
-            const px = x + Math.cos(angle + this.opponentCircleRotation) * dist;
-            const py = y + Math.sin(angle + this.opponentCircleRotation) * dist;
-            
-            if (this.gameHooks.activeMagicParticles) {
-                this.gameHooks.activeMagicParticles.push({
-                    x: px,
-                    y: py,
-                    radius: Math.random() * 1.5 + 0.5,
-                    alpha: 0.1 + Math.random() * 0.1,
-                    dx: (Math.random() - 0.5) * 0.3,
-                    dy: (Math.random() - 0.5) * 0.3,
-                    color: element ? this.getOpponentElementColor(element) + "," : "rgba(255, 102, 102,",
-                });
-            }
+            this.gameHooks.activeMagicParticles?.push({
+                x: x + Math.cos(angle + this.opponentCircleRotation) * dist,
+                y: y + Math.sin(angle + this.opponentCircleRotation) * dist,
+                radius: Math.random() * 1.5 + 0.5,
+                alpha: 0.1 + Math.random() * 0.1,
+                dx: (Math.random() - 0.5) * 0.3,
+                dy: (Math.random() - 0.5) * 0.3,
+                color
+            });
         }
-    }
-
-    drawOpponentProjectilePolygonPattern(ctx, x, y, r, count, color, rotation, tipi) {
-        drawProjectilePolygonPattern(ctx, x, y, r, count, color, rotation, tipi);
-    }
-
-    getElementColor(element) {
-        const colors = {
-            fuoco: '#ff5555',
-            acqua: '#5555ff',
-            aria: '#aaaaee',
-            terra: '#55aa55',
-            fulmine: '#ffff55',
-            luce: '#ffffff'
-        };
-        return colors[element] || '#ffffff';
-    }
-
-    getOpponentElementColor(element) {
-        const opponentColors = {
-            fuoco: '#ff8888',    // Rosso più chiaro
-            acqua: '#ff6666',    // Rosso-violaceo
-            aria: '#ff9999',     // Rosa-rosso
-            terra: '#cc4444',    // Rosso scuro
-            fulmine: '#ffaaaa',  // Rosa chiaro
-            luce: '#ff7777'      // Rosso medio
-        };
-        return opponentColors[element] || '#ff6666';
-    }
-
-    replaceColorWithOpponent(color, element) {
-        const opponentColor = this.getOpponentElementColor(element);
-
-        // Lista dei colori da sostituire
-        const elementColorMap = {
-            'orange': opponentColor,
-            opponentColor: opponentColor,
-            '#ff5555': opponentColor,
-            '#5555ff': opponentColor,
-            '#aaaaee': opponentColor,
-            '#55aa55': opponentColor,
-            '#ffff55': opponentColor,
-            '#ffffff': opponentColor
-        };
-
-        // Sostituisci se trova una corrispondenza
-        for (const [original, replacement] of Object.entries(elementColorMap)) {
-            if (color && color.includes && color.includes(original.replace('#', ''))) {
-                return replacement;
-            }
-        }
-
-        return color;
-    }
-
-    drawOpponentElementPattern(ctx, x, y, r, element) {
-        // Approccio diretto: disegniamo manualmente i pattern con i colori avversario
-        const opponentColor = this.getOpponentElementColor(element);
-
-        ctx.save();
-        ctx.translate(x, y);
-
-        if (element === 'fuoco') {
-            // Copia esatta del pattern fuoco da element-patterns.js ma con colore avversario
-            for (let i = 0; i < 16; i++) {
-                let angle = (Math.PI * 2 / 16) * i;
-                ctx.save();
-                ctx.rotate(angle);
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.lineTo(r * 0.5, 0);
-                ctx.lineTo(r * 0.7, Math.sin(Math.PI / 8) * r * 0.2);
-                ctx.lineTo(r * 0.9, 0);
-                ctx.strokeStyle = opponentColor;
-                ctx.lineWidth = 3;
-                ctx.stroke();
-                ctx.restore();
-            }
-
-            // Cerchio piccolo centrale
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.22, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 1;
-            ctx.stroke();
-
-            // Cerchio medio
-            let rMedio = (r * 0.22 + r * 0.9) / 2;
-            ctx.beginPath();
-            ctx.arc(0, 0, rMedio, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 1;
-            ctx.stroke();
-
-            // Cerchio esterno che racchiude le fiamme
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.9, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 0.7;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-
-            // Secondo cerchio esterno
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.97, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 1;
-            ctx.stroke();
-
-            // Gradiente di riempimento
-            let grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
-            grad.addColorStop(0, opponentColor + '40');
-            grad.addColorStop(0.5, opponentColor + '20');
-            grad.addColorStop(1, opponentColor + '10');
-            ctx.globalAlpha = 0.25;
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.95, 0, 2 * Math.PI);
-            ctx.fillStyle = grad;
-            ctx.fill();
-            ctx.globalAlpha = 1;
-        }
-
-        else if (element === 'aria') {
-            // Cerchi concentrici
-            for (let i = 1; i <= 3; i++) {
-                ctx.beginPath();
-                ctx.arc(0, 0, r * (0.3 + i * 0.18), 0, 2 * Math.PI);
-                ctx.strokeStyle = opponentColor;
-                ctx.globalAlpha = 0.5;
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-            }
-            // Cerchio alle estremità interne delle linee radiali
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.3, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 1;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-            // Cerchio alle estremità esterne delle linee radiali
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.81, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 1;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-            // Linee radiali
-            for (let i = 0; i < 12; i++) {
-                let angle = (Math.PI * 2 / 12) * i;
-                ctx.beginPath();
-                ctx.moveTo(Math.cos(angle) * r * 0.3, Math.sin(angle) * r * 0.3);
-                ctx.lineTo(Math.cos(angle) * r * 0.84, Math.sin(angle) * r * 0.84);
-                ctx.strokeStyle = opponentColor;
-                ctx.globalAlpha = 0.4;
-                ctx.lineWidth = 1;
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-            }
-            // Curve a spirale
-            ctx.save();
-            ctx.rotate(Math.PI / 12);
-            for (let s = 0; s < 3; s++) {
-                ctx.beginPath();
-                for (let t = 0; t < 60; t++) {
-                    let theta = t * 0.2 + s * Math.PI * 2 / 3;
-                    let rad = r * 0.3 + t * (r * 0.5 / 60) + Math.sin(theta * 2) * 2;
-                    let px = Math.cos(theta) * rad;
-                    let py = Math.sin(theta) * rad;
-                    if (t === 0) ctx.moveTo(px, py);
-                    else ctx.lineTo(px, py);
-                }
-                ctx.strokeStyle = opponentColor;
-                ctx.globalAlpha = 0.7;
-                ctx.lineWidth = 2;
-                ctx.stroke();
-            }
-            ctx.restore();
-            // Cerchio esterno aggiuntivo
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.97, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 1;
-            ctx.stroke();
-        }
-
-        else if (element === 'acqua') {
-            // Pattern ondulato acqua
-            for (let i = 1; i <= 4; i++) {
-                ctx.beginPath();
-                ctx.arc(0, 0, r * (0.25 + i * 0.15), 0, 2 * Math.PI);
-                if (i === 1) {
-                    ctx.strokeStyle = opponentColor;
-                    ctx.lineWidth = 3;
-                    ctx.globalAlpha = 1;
-                } else {
-                    ctx.strokeStyle = opponentColor;
-                    ctx.lineWidth = 2;
-                    ctx.globalAlpha = 0.5;
-                }
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-            }
-            // Onde regolari
-            for (let i = 1; i <= 3; i++) {
-                ctx.save();
-                ctx.rotate(i * Math.PI / 6);
-                ctx.beginPath();
-                for (let t = 0; t <= 64; t++) {
-                    let theta = t * Math.PI * 2 / 64;
-                    let rad = r * (0.35 + i * 0.13) + Math.sin(theta * 6 + i) * 7;
-                    let px = Math.cos(theta) * rad;
-                    let py = Math.sin(theta) * rad;
-                    if (t === 0) ctx.moveTo(px, py);
-                    else ctx.lineTo(px, py);
-                }
-                ctx.closePath();
-                ctx.strokeStyle = opponentColor;
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-                ctx.restore();
-            }
-            // Piccoli glifi/gocce
-            for (let i = 0; i < 10; i++) {
-                let angle = (Math.PI * 2 / 10) * i + Math.PI / 10;
-                let rad = r * 0.7;
-                ctx.save();
-                ctx.rotate(angle);
-                ctx.beginPath();
-                ctx.ellipse(rad, 0, 6, 3, angle, 0, 2 * Math.PI);
-                ctx.fillStyle = opponentColor + '80';
-                ctx.fill();
-                ctx.restore();
-            }
-            // Cerchio esterno aggiuntivo
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.97, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 1;
-            ctx.stroke();
-        }
-
-        else if (element === 'terra') {
-            // Cerchi concentrici
-            for (let i = 1; i <= 3; i++) {
-                ctx.beginPath();
-                ctx.arc(0, 0, r * (0.32 + i * 0.18), 0, 2 * Math.PI);
-                if (i === 2) {
-                    ctx.strokeStyle = opponentColor;
-                    ctx.lineWidth = 3;
-                    ctx.globalAlpha = 1;
-                } else {
-                    ctx.strokeStyle = opponentColor;
-                    ctx.globalAlpha = 0.5;
-                    ctx.lineWidth = 2;
-                }
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-            }
-            // Pentagono centrale
-            ctx.save();
-            ctx.beginPath();
-            for (let i = 0; i < 5; i++) {
-                let angle = (Math.PI * 2 / 5) * i - Math.PI / 2;
-                let px = Math.cos(angle) * r * 0.38;
-                let py = Math.sin(angle) * r * 0.38;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 0.8;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-            ctx.restore();
-            // Pentacolo (stelletta)
-            ctx.save();
-            ctx.beginPath();
-            for (let i = 0; i < 5; i++) {
-                let angle = (Math.PI * 2 / 5) * i - Math.PI / 2;
-                let px = Math.cos(angle) * r * 0.38;
-                let py = Math.sin(angle) * r * 0.38;
-                ctx.lineTo(px, py);
-                let next = (i + 2) % 5;
-                let angle2 = (Math.PI * 2 / 5) * next - Math.PI / 2;
-                let px2 = Math.cos(angle2) * r * 0.38;
-                let py2 = Math.sin(angle2) * r * 0.38;
-                ctx.lineTo(px2, py2);
-            }
-            ctx.closePath();
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 1.5;
-            ctx.globalAlpha = 0.7;
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-            ctx.restore();
-            // Linee radiali
-            for (let i = 0; i < 10; i++) {
-                let angle = (Math.PI * 2 / 10) * i;
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.lineTo(Math.cos(angle) * r * 0.85, Math.sin(angle) * r * 0.85);
-                ctx.strokeStyle = opponentColor;
-                ctx.lineWidth = 1;
-                ctx.globalAlpha = 0.4;
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-            }
-            // Cerchio esterno aggiuntivo
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.97, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 1;
-            ctx.stroke();
-        }
-
-        else if (element === 'fulmine') {
-            // Pattern zigzag
-            const rays = 12;
-            for (let i = 0; i < rays; i++) {
-                let angle = (Math.PI * 2 / rays) * i;
-                ctx.save();
-                ctx.rotate(angle);
-
-                ctx.beginPath();
-                ctx.moveTo(r * 0.2, 0);
-
-                // Zigzag
-                for (let j = 1; j <= 8; j++) {
-                    let dist = r * (0.2 + j * 0.08);
-                    let offset = (j % 2 === 0) ? r * 0.03 : -r * 0.03;
-                    ctx.lineTo(dist, offset);
-                }
-
-                ctx.strokeStyle = opponentColor;
-                ctx.lineWidth = 2;
-                ctx.globalAlpha = 0.8;
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-                ctx.restore();
-            }
-
-            // Cerchio centrale
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.15, 0, 2 * Math.PI);
-            ctx.strokeStyle = opponentColor;
-            ctx.lineWidth = 3;
-            ctx.stroke();
-
-            // Archi elettrici
-            for (let i = 0; i < 6; i++) {
-                let angle = (Math.PI * 2 / 6) * i;
-                ctx.beginPath();
-                ctx.arc(Math.cos(angle) * r * 0.6, Math.sin(angle) * r * 0.6, r * 0.1, 0, 2 * Math.PI);
-                ctx.strokeStyle = opponentColor;
-                ctx.lineWidth = 1.5;
-                ctx.globalAlpha = 0.7;
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-            }
-        }
-
-        else if (element === 'luce') {
-            // Pattern raggi
-            const rays = 16;
-            for (let i = 0; i < rays; i++) {
-                let angle = (Math.PI * 2 / rays) * i;
-                ctx.save();
-                ctx.rotate(angle);
-
-                // Raggio principale
-                ctx.beginPath();
-                ctx.moveTo(r * 0.1, 0);
-                ctx.lineTo(r * 0.9, 0);
-                ctx.strokeStyle = opponentColor;
-                ctx.lineWidth = i % 2 === 0 ? 3 : 1.5;
-                ctx.globalAlpha = i % 2 === 0 ? 0.8 : 0.5;
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-                ctx.restore();
-            }
-
-            // Cerchi concentrici
-            for (let i = 1; i <= 4; i++) {
-                ctx.beginPath();
-                ctx.arc(0, 0, r * (0.15 + i * 0.15), 0, 2 * Math.PI);
-                ctx.strokeStyle = opponentColor;
-                ctx.lineWidth = 2;
-                ctx.globalAlpha = 0.9 - i * 0.15;
-                ctx.stroke();
-                ctx.globalAlpha = 1;
-            }
-
-            // Centro luminoso
-            ctx.beginPath();
-            ctx.arc(0, 0, r * 0.1, 0, 2 * Math.PI);
-            ctx.fillStyle = opponentColor + '99';
-            ctx.fill();
-        }
-
-        ctx.restore();
-    }
-
-    replaceColorWithOpponent(color, element) {
-        const opponentColor = this.getOpponentElementColor(element);
-        
-        // Lista dei colori da sostituire
-        const elementColorMap = {
-            'orange': opponentColor,
-            opponentColor: opponentColor,
-            '#ff5555': opponentColor,
-            '#5555ff': opponentColor,
-            '#aaaaee': opponentColor,
-            '#55aa55': opponentColor,
-            '#ffff55': opponentColor,
-            '#ffffff': opponentColor
-        };
-        
-        // Sostituisci se trova una corrispondenza
-        for (const [original, replacement] of Object.entries(elementColorMap)) {
-            if (color && color.includes && color.includes(original.replace('#', ''))) {
-                return replacement;
-            }
-        }
-        
-        return color;
     }
 
     drawOpponentCasting(ctx) {
-        if (!this.opponent.castingPoints || this.opponent.castingPoints.length < 2) return;
-        
+        const pts = this.opponent.castingPoints;
+        if (!pts || pts.length < 2) return;
+
         ctx.save();
         ctx.beginPath();
-        ctx.moveTo(this.opponent.castingPoints[0].x, this.opponent.castingPoints[0].y);
-        
-        for (let i = 1; i < this.opponent.castingPoints.length; i++) {
-            ctx.lineTo(this.opponent.castingPoints[i].x, this.opponent.castingPoints[i].y);
-        }
-        
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
         ctx.strokeStyle = "rgba(255, 100, 100, 0.6)";
         ctx.lineWidth = 3;
         ctx.stroke();
         ctx.restore();
     }
 
-    createOpponentSpellEffect(spellData) {
-        // Crea effetti visual per le spell dell'avversario
-        const pos = spellData.position;
-        const count = 50;
-        
-        for (let i = 0; i < count; i++) {
-            this.gameHooks.activeMagicParticles.push({
-                x: pos.x + (Math.random() - 0.5) * 40,
-                y: pos.y + (Math.random() - 0.5) * 40,
+    createOpponentSpellEffect(position) {
+        for (let i = 0; i < 50; i++) {
+            this.gameHooks.activeMagicParticles?.push({
+                x: position.x + (Math.random() - 0.5) * 40,
+                y: position.y + (Math.random() - 0.5) * 40,
                 radius: Math.random() * 2 + 1,
                 alpha: 0.15 + Math.random() * 0.15,
                 dx: (Math.random() - 0.5) * 1.5,
                 dy: (Math.random() - 0.5) * 1.5,
-                color: 'rgba(255, 100, 100,',
+                color: 'rgba(255, 100, 100,'
             });
         }
     }
 
-    showDamageEffect(damage, isLocalPlayer) {
-        // Crea effetto visivo di danno
+    showDamageEffect(isLocalPlayer) {
         const position = isLocalPlayer ? this.gameHooks.virtualMouse : this.opponent.virtualMouse;
-        
-        // Crea particelle di danno
-        if (this.gameHooks.activeMagicParticles) {
-            for (let i = 0; i < 15; i++) {
-                this.gameHooks.activeMagicParticles.push({
-                    x: position.x + (Math.random() - 0.5) * 30,
-                    y: position.y + (Math.random() - 0.5) * 30,
-                    radius: Math.random() * 3 + 2,
-                    alpha: 0.8,
-                    dx: (Math.random() - 0.5) * 3,
-                    dy: (Math.random() - 0.5) * 3 - 1,
-                    color: isLocalPlayer ? 'rgba(255, 100, 100,' : 'rgba(100, 255, 100,',
-                });
-            }
+        if (!position || !this.gameHooks.activeMagicParticles) return;
+
+        for (let i = 0; i < 15; i++) {
+            this.gameHooks.activeMagicParticles.push({
+                x: position.x + (Math.random() - 0.5) * 30,
+                y: position.y + (Math.random() - 0.5) * 30,
+                radius: Math.random() * 3 + 2,
+                alpha: 0.8,
+                dx: (Math.random() - 0.5) * 3,
+                dy: (Math.random() - 0.5) * 3 - 1,
+                color: isLocalPlayer ? 'rgba(255, 100, 100,' : 'rgba(100, 255, 100,'
+            });
         }
-        
-        // Mostra testo di danno
-        console.log(`${isLocalPlayer ? '💥' : '🎯'} Danno: ${damage}`);
     }
 
+    // ------------------------------------------------------------
+    // FINE PARTITA
+    // ------------------------------------------------------------
+
+    /** @param {boolean|null} won - null = pareggio (tempo scaduto) */
     async endMatch(won, reason = 'normal') {
-        if (this.matchState === 'finished') return; // Evita doppi trigger
+        if (this.matchState === 'finished') return;
         this.matchState = 'finished';
 
         let message;
-        if (reason === 'forfeit') {
+        if (won === null) {
+            message = 'Tempo scaduto: Pareggio';
+        } else if (reason === 'forfeit') {
             message = won ? 'Vittoria per Forfeit' : 'Sconfitta per Forfeit';
         } else if (reason === 'opponent_disconnect') {
             message = 'Vittoria per Disconnessione';
         } else {
             message = won ? 'Vittoria!' : 'Sconfitta!';
         }
-        
-        // alert(message); // <-- RIMOSSO
-        
+
         if (this.postMatchOverlay && this.matchResultText) {
             this.matchResultText.textContent = message;
-            if (won) {
-                this.matchResultText.className = 'victory';
-            } else {
-                this.matchResultText.className = 'defeat';
-            }
+            this.matchResultText.className = won === null ? '' : (won ? 'victory' : 'defeat');
             this.postMatchOverlay.classList.remove('hidden');
         } else {
-            console.error("Elementi UI post-partita non trovati!");
-            alert(message); // Fallback se l'UI non esiste
+            alert(message);
         }
+        document.exitPointerLock?.();
 
         await this.updatePlayerStats(won);
         this.cleanupMatch();
-        
-        // Aumenta il timeout per dare il tempo di leggere il messaggio
-        setTimeout(() => {
-            window.location.href = 'arena.html';
-        }, 3000); // 3 secondi
+
+        setTimeout(() => { window.location.href = '/arena.html'; }, 3000);
     }
 
     cleanupMatch() {
-        // Ferma tutti gli intervalli attivi per le aree spaziali avversarie
-        if (this.activeSpatialIntervals) {
-            for (const [id, interval] of Object.entries(this.activeSpatialIntervals)) {
-                clearInterval(interval);
-            }
-            this.activeSpatialIntervals = {};
-        }
-        // Pulisci l'array delle aree
+        Object.values(this.activeSpatialIntervals).forEach(clearInterval);
+        this.activeSpatialIntervals = {};
         this.opponentSpazialeAreas = [];
-    
-        // Rimuovi dati della partita
+
         localStorage.removeItem('currentMatchData');
-        // Rimuovi dati di salute della partita
-        if (this.healthPersistenceKey) {
-            localStorage.removeItem(this.healthPersistenceKey);
-            console.log('🗑️ Dati partita puliti');
-        }
-        // Marca come disconnessione volontaria e disconnetti WebSocket
+        if (this.healthPersistenceKey) localStorage.removeItem(this.healthPersistenceKey);
+
         this.intentionalDisconnect = true;
-        if (this.ws) {
-            this.ws.close();
-            this.isConnected = false;
-        }
+        if (this.ws) this.ws.close();
+        this.isConnected = false;
     }
 
     async updatePlayerStats(won) {
         try {
-            const username = localStorage.getItem('currentPlayer');
-            const { loadPlayerFromDB, savePlayerData } = await import('./player-db.js');
-            
-            let playerData = await loadPlayerFromDB(username);
+            const username = getCurrentUsername();
+            const playerData = await loadPlayerFromDB(username);
             if (!playerData) return;
-            
-            // Incrementa partite giocate
-            const partite = (playerData.partite || 0) + 1;
-            // Incrementa vittorie solo se ha vinto
-            const vittorie = won ? (playerData.vittorie || 0) + 1 : (playerData.vittorie || 0);
-            
-            // Salva solo vittorie e partite (winRate viene calcolato dinamicamente)
+
             await savePlayerData(username, {
-                vittorie: vittorie,
-                partite: partite
+                partite: (playerData.partite || 0) + 1,
+                vittorie: (playerData.vittorie || 0) + (won === true ? 1 : 0)
             });
-            
-            const winRate = partite > 0 ? (vittorie / partite) : 0;
-            console.log(`📊 Statistiche aggiornate: ${won ? 'Vittoria' : 'Sconfitta'} - WinRate: ${(winRate * 100).toFixed(1)}%`);
-            
         } catch (error) {
             console.error('❌ Errore aggiornamento statistiche:', error);
         }
@@ -2128,28 +912,26 @@ export class PvPManager {
         return this.matchData !== null && this.isConnected;
     }
 
-    // Metodo per ottenere stato della salute (per l'interfaccia)
-    getHealthStatus() {
-        return {
-            playerHealth: this.gameHooks.playerHealth,
-            opponentHealth: this.opponent.health
-        };
+    // ------------------------------------------------------------
+    // GEOMETRIA
+    // ------------------------------------------------------------
+
+    calculatePolygonArea(vertices) {
+        let area = 0;
+        for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+            area += (vertices[j].x + vertices[i].x) * (vertices[j].y - vertices[i].y);
+        }
+        return Math.abs(area / 2);
     }
 
-    pointInPolygon(point, vs) {
-        const x = point.x;
-        const y = point.y;
-        
+    isPointInPolygon(point, polygon) {
         let inside = false;
-        for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-            const xi = vs[i].x, yi = vs[i].y;
-            const xj = vs[j].x, yj = vs[j].y;
-            
-            if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+            if (((polygon[i].y > point.y) !== (polygon[j].y > point.y)) &&
+                (point.x < (polygon[j].x - polygon[i].x) * (point.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)) {
                 inside = !inside;
             }
         }
-        
         return inside;
     }
 }

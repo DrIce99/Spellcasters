@@ -1,66 +1,74 @@
-import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
+// player-db.js - Lettura/scrittura dei dati giocatore su Firestore
+import { doc, setDoc, getDoc, updateDoc, increment } from "firebase/firestore";
+import { db } from "./firebase.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyApUmQPCgluD8YFBmuyqJmeNtbzHQmdTlo",
-  authDomain: "spellcasters-b7154.firebaseapp.com",
-  projectId: "spellcasters-b7154",
-  storageBucket: "spellcasters-b7154.firebasestorage.app",
-  messagingSenderId: "67384342350",
-  appId: "1:67384342350:web:089bd6200216d34ad4d01f",
-  measurementId: "G-NFLJ2L0JHF"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);// Import the functions you need from the SDKs you need
-
-// Salva dati player
-async function savePlayerToDB(player) {
-  await setDoc(doc(db, "players", player.username), player);
-}
-
-// Carica dati player
-export async function loadPlayerFromDB(username) {
-  if (!username) return null;
-  const docSnap = await getDoc(doc(db, "players", username));
-  if (docSnap.exists()) {
-    return docSnap.data();
-  } else {
-    return null;
-  }
-}
-
-function getCurrentUsername() {
+export function getCurrentUsername() {
   return localStorage.getItem('currentPlayer');
 }
 
-export async function getPlayerData(username) {
-  if (!username) return null;
-  return await loadPlayerFromDB(username);
+// Struttura di default di un giocatore (usata in registrazione e come fallback)
+export function createDefaultPlayer(username, password = '') {
+  return {
+    username,
+    password,
+    esperienza: 0,
+    livello: 1,
+    affinita: {},        // {fuoco: n, acqua: n, ...}
+    proiezioniUsate: {}, // {proiettile: n, spaziale: n}
+    mana: 10,
+    manaMax: 10,
+    vittorie: 0,
+    partite: 0,
+    magie: [],
+    predisposizione: {}
+  };
 }
 
+// Carica i dati del giocatore (null se non esiste)
+export async function loadPlayerFromDB(username) {
+  if (!username) return null;
+  const docSnap = await getDoc(doc(db, "players", username));
+  return docSnap.exists() ? docSnap.data() : null;
+}
+
+// Senza argomenti restituisce il giocatore attualmente loggato
+export async function getPlayerData(username = getCurrentUsername()) {
+  return loadPlayerFromDB(username);
+}
+
+// Aggiorna solo i campi passati. Usa merge: così due salvataggi in parallelo
+// (es. esperienza e affinità) non si sovrascrivono più a vicenda.
 export async function savePlayerData(username, data) {
   if (!username) return;
-  let player = await loadPlayerFromDB(username);
-  if (!player) {
-    // Qui puoi inizializzare tutti i campi di default!
-    player = {
-      username,
-      password: data.password || '',
-      esperienza: 0,
-      livello: 1,
-      affinita: {},
-      proiezioniUsate: {},
-      mana: 0,
-      manaMax: 10, // o la funzione che calcola il mana massimo
-      vittorie: 0,
-      partite: 0,
-      magie: [],
-      predisposizione: {}
-    };
+  const ref = doc(db, "players", username);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    await setDoc(ref, { ...createDefaultPlayer(username, data.password), ...data });
+    return;
   }
-  // Aggiorna solo le proprietà passate, ma mantieni tutte le altre
-  Object.assign(player, data);
-  await setDoc(doc(db, "players", username), player);
+  await setDoc(ref, data, { merge: true });
+}
+
+// Incrementa atomicamente dei contatori annidati, es:
+// incrementPlayerCounters('mario', { affinita: { fuoco: 2 }, proiezioniUsate: { proiettile: 1 } })
+export async function incrementPlayerCounters(username, groups) {
+  if (!username) return;
+  const updates = {};
+  for (const [group, counters] of Object.entries(groups)) {
+    for (const [key, value] of Object.entries(counters)) {
+      if (value) updates[`${group}.${key}`] = increment(value);
+    }
+  }
+  if (Object.keys(updates).length === 0) return;
+  try {
+    await updateDoc(doc(db, "players", username), updates);
+  } catch (error) {
+    // Il documento non esiste ancora: lo crea e riprova
+    if (error.code === 'not-found') {
+      await savePlayerData(username, {});
+      await updateDoc(doc(db, "players", username), updates);
+    } else {
+      throw error;
+    }
+  }
 }

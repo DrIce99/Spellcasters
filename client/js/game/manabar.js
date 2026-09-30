@@ -1,4 +1,5 @@
-// === MANA BAR MODULE ===
+// manabar.js - Barra del mana disegnata lungo il bordo dello schermo
+import { BURNOUT_FRAMES } from './progression.js';
 
 let mana = 5;
 let manaMax = 10;
@@ -32,11 +33,9 @@ function drawManaSegments() {
   const thickness = 10;
   
   let percent, color;
-    if (inBurnout) {
-    // Durante il burnout: barra rossa che mostra il progresso del timer
-    // Il burnoutTimer parte da 300 (5 secondi a 60fps) e scende a 0
-    const maxBurnoutTime = 300; // 5 secondi a 60fps, come definito in triggerBurnout()
-    percent = Math.max(0, Math.min(1, burnoutTimer / maxBurnoutTime));
+  if (inBurnout) {
+    // Durante il burnout: barra rossa che mostra il tempo rimanente
+    percent = Math.max(0, Math.min(1, burnoutTimer / BURNOUT_FRAMES));
     color = '#ff0000'; // Rosso fisso durante burnout
   } else {
     // Modalità normale: mostra il livello di mana con colori dinamici

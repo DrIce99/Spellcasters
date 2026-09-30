@@ -1,0 +1,35 @@
+/* style-modal-rework.css */
+
+.modal-content {
+    background: #1c202a;
+    border: 1px solid var(--rework-secondary-color);
+    box-shadow: 0 0 30px rgba(127, 92, 255, 0.5);
+    border-radius: 0;
+    /* Forma ottagonale leggera per la modal */
+    clip-path: polygon(5% 0, 95% 0, 100% 5%, 100% 95%, 95% 100%, 5% 100%, 0 95%, 0 5%); 
+    padding: 30px;
+    font-family: var(--font-family-rework);
+}
+
+.modal-content h2 {
+    color: var(--rework-primary-color);
+    margin-bottom: 20px;
+}
+
+.settings-sliders label, .keybinding-row {
+    color: var(--text-color);
+}
+
+.keybinding-row .key {
+    background: rgba(127, 92, 255, 0.2);
+    border: 1px solid var(--rework-secondary-color);
+    padding: 2px 6px;
+    border-radius: 3px;
+    box-shadow: 0 0 5px rgba(127, 92, 255, 0.2);
+}
+
+#theme-toggle-container button {
+    width: 100%;
+    height: 40px;
+    clip-path: polygon(5% 0%, 95% 0%, 100% 50%, 95% 100%, 5% 100%, 0% 50%); /* Esagono semplice per i toggle */
+}

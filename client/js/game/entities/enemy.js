@@ -3,9 +3,10 @@ const enemySprites = {
   eye: new Image(),
   limb: new Image()
 };
-enemySprites.body.src = './src/img/square.png';
-enemySprites.eye.src = './src/img/square.png';
-enemySprites.limb.src = './src/img/square.png';
+// client/public/img/square.png, servita da Vite come /img/square.png
+enemySprites.body.src = '/img/square.png';
+enemySprites.eye.src = '/img/square.png';
+enemySprites.limb.src = '/img/square.png';
 
 export class Enemy {
   constructor(x, y, type = 'normal') {

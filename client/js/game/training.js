@@ -1,35 +1,18 @@
-// Controllo modalità - non eseguire se siamo in PvP
-const params = new URLSearchParams(window.location.search);
-const gameMode = params.get('mode') || 'training';
+// training.js - Manichino da allenamento per game.html?mode=training
+import { Enemy } from "./entities/enemy.js";
+import { globalCollisionSystem } from './collision-system.js';
 
-if (gameMode === 'training') {
-    // Importa le funzionalità principali e la classe Enemy
-    const { Enemy } = await import("./src/entities/enemy.js");
-    const Main = await import("./main.js");
-    const { globalCollisionSystem } = await import('./collision-system.js');
-
-    // Inizializza canvas e contesto come in main.js
-    const canvas = document.getElementById("spellCanvas");
-    const ctx = canvas.getContext("2d");
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    // Crea una lista di nemici per il training
-    const enemy = new Enemy(1500, 400, 'light');
-    enemy.mass = 1; // Massa più alta del mouse
+export function setupTrainingDummy(canvas) {
+    // Posizione relativa allo schermo (prima era fissa a x=1500 e finiva fuori dagli schermi piccoli)
+    const enemy = new Enemy(canvas.clientWidth * 0.78 || 1500, canvas.clientHeight * 0.37 || 400, 'light');
     enemy.restitution = 0.4;
-    enemy.velocity = { x: 0, y: 0 };
     globalCollisionSystem.registerEntity(enemy);
 
-    // Funzione per disegnare nemici (chiamata da main.js)
+    // Chiamata a ogni frame da engine.js
     window.drawTrainingEnemies = function(ctx) {
-        enemy.update(1/60);
+        enemy.update(1 / 60);
         enemy.draw(ctx);
     };
 
     console.log('🎯 Sistema di training inizializzato');
-} else {
-    const Main = await import("./main.js");
-    const { globalCollisionSystem } = await import('./collision-system.js');
-    console.log('⚔️ Modalità PvP rilevata, training.js disabilitato');
 }

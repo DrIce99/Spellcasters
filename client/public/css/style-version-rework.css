@@ -1,0 +1,33 @@
+/* style-version-rework.css */
+
+body {
+    overflow: auto;
+    background: var(--bg-color);
+}
+
+.version-title {
+    color: var(--home-title-color);
+    text-shadow: 0 0 8px var(--home-title-color);
+}
+
+.version-info {
+    background: var(--rework-button-bg);
+    border: 1px solid var(--rework-secondary-color);
+    border-radius: 0;
+    box-shadow: 0 0 10px rgba(127, 92, 255, 0.15);
+    /* Forma geometrica a parallelogramma */
+    clip-path: polygon(0 5%, 100% 0, 100% 95%, 0 100%); 
+    padding: 15px 30px;
+    width: 340px;
+    text-align: left;
+    margin-bottom: 25px;
+    font-family: var(--font-family-rework);
+}
+
+.version-info h2, .version-info h3 {
+    color: var(--rework-primary-color);
+}
+
+.version-info p {
+    font-family: var(--font-family-rework);
+}

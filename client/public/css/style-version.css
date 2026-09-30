@@ -1,0 +1,75 @@
+body {
+    overflow: auto;
+}
+
+.version-title {
+font-family: "Cinzel", serif;
+    color: var(--home-title-color);
+}
+
+.version-info {
+    background: rgba(255, 255, 255, 0.277);
+    border: 1px solid #bfcfff;
+    border-radius: 10px;
+    padding: 18px 30px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    width: 320px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.version-info h2 {
+    margin: 0 0 12px;
+    font-size: 1.25em;
+    color: var(--home-title-color, #4f8cff);
+}
+
+.version-info p {
+    margin: 7px 0;
+    color: var(--text-color);
+}
+
+.version-info h3 {
+    margin: 10px 0 0;
+    color: aqua;
+}
+
+.special {
+    background: linear-gradient(to right,
+            rgb(255, 0, 255),
+            rgb(0, 255, 255),
+            rgb(0, 255, 0),
+            rgb(255, 255, 0),
+            rgb(255, 0, 0),
+            rgb(255, 0, 255));
+    background-clip: text;
+    color: transparent;
+    background-size: 200% auto;
+    animation: gradientAnimation 3s linear infinite;
+}
+
+@keyframes gradientAnimation {
+    0% {
+        background-position: 200% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+::-webkit-scrollbar {
+    width: 2px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--home-title-color);
+}
+
+.credits {
+    bottom: 8px;
+    right: 16px;
+    text-align: end;
+    color: var(--home-title-color);
+    position: fixed;
+}

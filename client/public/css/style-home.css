@@ -52,3 +52,23 @@
   display: block;
   background: linear-gradient(to top, rgba(0, 225, 255, 0.158), rgba(0, 0, 0, 0.0));
 }
+
+#version {
+  position: fixed;
+  bottom: 8px;
+  right: 16px;
+  font-size: 0.75rem;
+  text-align: end;
+  color: var(--text-secondary-color);
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
+#version:hover {
+  background: none;
+}
+
+body.day {
+  color: var(--text-color)
+}

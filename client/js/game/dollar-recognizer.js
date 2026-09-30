@@ -1,4 +1,4 @@
-// dollarRecognizer.js
+// dollar-recognizer.js - Riconoscimento dei gesti (algoritmo "$1 Unistroke" semplificato)
 export default class DollarRecognizer {
   constructor() {
     this.templates = [];
@@ -224,7 +224,8 @@ export default class DollarRecognizer {
   normalize(points) {
     // 1. Ridimensiona e trasla
     const { minX, minY, width, height } = this.boundingBox(points);
-    const scale = Math.max(width, height);
+    // Evita la divisione per zero se tutti i punti coincidono
+    const scale = Math.max(width, height) || 1;
     const newPoints = [];
     
     for (const point of points) {
@@ -248,7 +249,7 @@ export default class DollarRecognizer {
       const curr = points[i];
       const d = this.distance(prev, curr);
 
-      if (D + d >= interval) {
+      if (d > 0 && D + d >= interval) {
         const qx = prev.x + ((interval - D) / d) * (curr.x - prev.x);
         const qy = prev.y + ((interval - D) / d) * (curr.y - prev.y);
         newPoints.push({ x: qx, y: qy });
@@ -298,11 +299,14 @@ export default class DollarRecognizer {
 
   compare(points1, points2) {
     // Distanza media tra punti corrispondenti
+    // (il ricampionamento può produrre un punto in più o in meno: si confronta il minimo comune)
+    const n = Math.min(points1.length, points2.length);
+    if (n === 0) return 0;
     let sum = 0;
-    for (let i = 0; i < points1.length; i++) {
+    for (let i = 0; i < n; i++) {
       sum += this.distance(points1[i], points2[i]);
     }
-    const avg = sum / points1.length;
+    const avg = sum / n;
 
     // Converti in punteggio (1 = perfetto, 0 = pessimo)
     const maxSize = 100; // Dimensione area normalizzata

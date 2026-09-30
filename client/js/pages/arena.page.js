@@ -1,5 +1,7 @@
-// arena.js - Sistema client per matchmaking e duelli
-import { getPlayerData, savePlayerData } from './player-db.js';
+// arena.page.js - Lobby dell'Arena: matchmaking, classifica, accesso al training
+import { getPlayerData } from '../services/player-db.js';
+import { WS_URL } from '../services/config.js';
+import { initColorTheme, initUITheme } from '../ui/theme.js';
 
 class ArenaManager {
     constructor() {
@@ -8,61 +10,43 @@ class ArenaManager {
         this.currentMatch = null;
         this.playerData = null;
         this.isConnected = false;
-        this.matchmakingStatus = 'idle'; // idle, searching, found, in_game
-        
-        this.initializeUI();
+        this.isRegistered = false;
+        this.isLeaving = false; // true quando si lascia la pagina di proposito
+        this.matchmakingStatus = 'idle'; // idle, searching, found
+
+        this.setupEventListeners();
+        this.loadPlayer();
         this.connectToServer();
     }
 
-    async initializeUI() {
-        // 1. Verifica l'username in localStorage
+    async loadPlayer() {
         const username = localStorage.getItem('currentPlayer');
-        
-        if (username) {
-            console.log(`👤 Trovato utente in localStorage: ${username}. Tentativo di fetch da Firebase...`);
-            this.updateStatusMessage(`Caricamento dati per ${username}...`);
-
-            try { 
-                // 2. Tenta di recuperare i dati dal DB
-                this.playerData = await getPlayerData(username);
-                
-                if (this.playerData) {
-                    // 3. Successo: i dati sono stati caricati
-                    console.log('✅ Dati utente caricati con successo:', this.playerData);
-                    document.getElementById('name-value').textContent = this.playerData.username;
-                    document.getElementById('level-value').textContent = this.playerData.livello || 1;
-                    
-                    this.updatePlayerStats();
-                    this.updateStatusMessage('Dati utente caricati. Connessione al server...');
-                } else {
-                    // 4. Utente non trovato nel DB
-                    console.error(`❌ ERRORE: Nessun documento trovato in Firestore per l'utente "${username}".`);
-                    this.updateStatusMessage(`Utente non trovato nel database! Accesso necessario.`);
-                    // Potresti aggiungere qui una logica per reindirizzare l'utente
-                }
-            } catch (error) {
-                // 5. Errore di connessione o autenticazione Firebase
-                console.error('❌ ERRORE CRITICO nel recupero dati utente (Firebase/player-db.js):', error);
-                this.updateStatusMessage('Errore di connessione al database. Controlla la Console.');
-            }
-        } else {
-             // 6. Username mancante in localStorage
-             console.error('❌ ERRORE: Chiave "currentPlayer" mancante in localStorage.');
-             this.updateStatusMessage('Accesso non effettuato. Ritorna alla Home per accedere.');
+        if (!username) {
+            this.updateStatusMessage('Accesso non effettuato. Ritorna alla Home per accedere.');
+            return;
         }
 
-        // Setup event listeners
-        this.setupEventListeners();
-        
-        // Inizializza tema
-        this.initArenaTheme();
+        this.updateStatusMessage(`Caricamento dati per ${username}...`);
+        try {
+            this.playerData = await getPlayerData(username);
+            if (!this.playerData) {
+                this.updateStatusMessage('Utente non trovato nel database! Accesso necessario.');
+                return;
+            }
+            document.getElementById('name-value').textContent = this.playerData.username;
+            document.getElementById('level-value').textContent = this.playerData.livello || 1;
+            this.updatePlayerStats();
+            this.updateStatusMessage('Dati utente caricati. Connessione al server...');
+            // La registrazione parte quando sia i dati sia la connessione sono pronti
+            this.registerPlayer();
+        } catch (error) {
+            console.error('❌ Errore nel recupero dati utente:', error);
+            this.updateStatusMessage('Errore di connessione al database. Controlla la Console.');
+        }
     }
 
     updatePlayerStats() {
-        const statsContainer = document.getElementById('player-stats');
-        if (!statsContainer) {
-            // Crea container statistiche se non esiste
-            const playerInfo = document.getElementById('player-info');
+        if (!document.getElementById('player-stats')) {
             const stats = document.createElement('div');
             stats.id = 'player-stats';
             stats.innerHTML = `
@@ -71,77 +55,54 @@ class ArenaManager {
                 <p>Vittorie: <span id="total-wins">0</span></p>
                 <p>Win Rate: <span id="win-rate">0%</span></p>
             `;
-            playerInfo.appendChild(stats);
+            document.getElementById('player-info').appendChild(stats);
         }
 
-        const totalMatches = this.playerData.partite || 0;
-        const winRate = this.playerData.vittorie/this.playerData.partite || 0;
-        const totalWins = Math.floor(totalMatches * winRate);
+        const partite = this.playerData.partite || 0;
+        const vittorie = this.playerData.vittorie || 0;
+        const winRate = partite > 0 ? vittorie / partite : 0;
 
-        document.getElementById('total-matches').textContent = totalMatches;
-        document.getElementById('total-wins').textContent = totalWins;
+        document.getElementById('total-matches').textContent = partite;
+        document.getElementById('total-wins').textContent = vittorie;
         document.getElementById('win-rate').textContent = `${(winRate * 100).toFixed(1)}%`;
     }
 
     setupEventListeners() {
-        // Pulsante matchmaking
-        const matchmakingBtn = document.getElementById('matchmaking-btn');
-        matchmakingBtn.addEventListener('click', () => {
-            this.toggleMatchmaking();
-        });
+        document.getElementById('matchmaking-btn').addEventListener('click', () => this.toggleMatchmaking());
 
-        // Pulsante home
         document.getElementById('home-btn').addEventListener('click', () => {
             this.leaveMatchmaking();
-            window.location.href = 'home.html';
+            window.location.href = '/home.html';
         });
 
-        // Pulsante training
         document.getElementById('training-btn').addEventListener('click', () => {
-            window.location.href = 'game.html?mode=training';
+            window.location.href = '/game.html?mode=training';
         });
 
-        document.getElementById('open-leaderboard-btn').addEventListener('click', () => {
-            this.showLeaderboard();
-        });
+        document.getElementById('open-leaderboard-btn').addEventListener('click', () => this.showLeaderboard());
+        document.getElementById('close-leaderboard-btn').addEventListener('click', () => this.hideLeaderboard());
 
-        document.getElementById('close-leaderboard-btn').addEventListener('click', () => {
-            this.hideLeaderboard();
-        });
-
-        // Scorciatoie tastiera
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'n' || e.key === 'N') this.setArenaTheme('night');
-            if (e.key === 'g' || e.key === 'G') this.setArenaTheme('day');
-        });
-
-        // Gestione chiusura pagina
         window.addEventListener('beforeunload', () => {
+            this.isLeaving = true;
             this.leaveMatchmaking();
-            if (this.ws) {
-                this.ws.close();
-            }
+            if (this.ws) this.ws.close();
         });
     }
 
     connectToServer() {
-        const wsUrl = 'wss://spellcasters.onrender.com'; // O localhost per development
-        // const wsUrl = 'ws://localhost:8080'; // Cambia con il tuo server WebSocket
-        
         try {
-            this.ws = new WebSocket(wsUrl);
-            
+            this.ws = new WebSocket(WS_URL);
+
             this.ws.onopen = () => {
                 console.log('✅ Connesso al server arena');
                 this.isConnected = true;
-                this.registerPlayer();
                 this.updateConnectionStatus('Connesso');
+                this.registerPlayer();
             };
 
             this.ws.onmessage = (event) => {
                 try {
-                    const data = JSON.parse(event.data);
-                    this.handleServerMessage(data);
+                    this.handleServerMessage(JSON.parse(event.data));
                 } catch (error) {
                     console.error('❌ Errore parsing messaggio server:', error);
                 }
@@ -155,56 +116,63 @@ class ArenaManager {
             this.ws.onclose = () => {
                 console.log('🔌 Connessione chiusa');
                 this.isConnected = false;
+                this.isRegistered = false;
+                this.playerId = null;
+                this.matchmakingStatus = 'idle';
+                this.updateMatchmakingUI();
                 this.updateConnectionStatus('Disconnesso');
                 this.updateOnlineCount(0);
-                
-                // Riprova la connessione dopo 5 secondi
-                setTimeout(() => {
-                    if (!this.isConnected) {
-                        this.connectToServer();
-                    }
-                }, 5000);
-            };
 
+                // Riprova la connessione dopo 5 secondi (ma non se stiamo cambiando pagina)
+                if (!this.isLeaving) {
+                    setTimeout(() => {
+                        if (!this.isConnected && !this.isLeaving) this.connectToServer();
+                    }, 5000);
+                }
+            };
         } catch (error) {
             console.error('❌ Errore creazione WebSocket:', error);
             this.updateConnectionStatus('Impossibile connettersi');
         }
     }
 
-    registerPlayer() {
-        if (!this.ws || !this.playerData) {
-            console.error('❌ Impossibile registrare: ws o playerData mancanti', {
-                ws: !!this.ws,
-                playerData: !!this.playerData
-            });
-            return;
+    send(message) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(message));
+            return true;
         }
+        return false;
+    }
 
-        const registrationData = {
+    registerPlayer() {
+        // Serve sia la connessione aperta sia il profilo caricato da Firebase
+        if (this.isRegistered || !this.isConnected || !this.playerData) return;
+
+        this.send({
             type: 'register',
             username: this.playerData.username,
             level: this.playerData.livello || 1,
-            winRate: this.playerData.vittorie/this.playerData.partite || 0,
-            totalMatches: this.playerData.partite || 0
-        };
-
-        console.log('📤 Invio registrazione:', registrationData);
-        this.ws.send(JSON.stringify(registrationData));
+            vittorie: this.playerData.vittorie || 0,
+            partite: this.playerData.partite || 0
+        });
+        this.isRegistered = true;
     }
 
     handleServerMessage(data) {
-        console.log('📨 Messaggio dal server:', data);
-        
         switch (data.type) {
             case 'registered':
                 this.playerId = data.playerId;
-                console.log('✅ Registrato sul server con ID:', this.playerId);
                 this.updateStatusMessage('Registrato - Pronto per il matchmaking');
+                this.updateMatchmakingUI();
                 break;
 
             case 'onlinePlayers':
                 this.updateOnlineCount(data.count);
+                break;
+
+            case 'playerCounts':
+                this.updateOnlineCount(data.totalOnline);
+                this.updateReadyCount(data.playersReady);
                 break;
 
             case 'matchmakingJoined':
@@ -229,11 +197,6 @@ class ArenaManager {
                 this.matchmakingStatus = 'idle';
                 this.updateMatchmakingUI();
                 break;
-            
-            case 'playerCounts':
-                this.updateOnlineCount(data.totalOnline);
-                this.updateReadyCount(data.playersReady);
-                break;
 
             case 'leaderboardData':
                 this.renderLeaderboard(data.leaderboard);
@@ -244,38 +207,30 @@ class ArenaManager {
         }
     }
 
-    updateReadyCount(count) {
-        const element = document.getElementById('ready-players-count');
-        if (element) {
-            element.textContent = count;
-        }
-    }
-
     handleMatchFound(data) {
         this.currentMatch = data.matchId;
         this.matchmakingStatus = 'found';
-        
-        const opponent = data.opponent;
-        this.updateStatusMessage(`Match trovato! Avversario: ${opponent.username} (Liv. ${opponent.level})`);
-        
-        // Mostra informazioni match per qualche secondo prima di iniziare
-        setTimeout(() => {
-            this.startMatch(data);
-        }, 3000);
+        this.updateMatchmakingUI();
+        this.updateStatusMessage(`Match trovato! Avversario: ${data.opponent.username} (Liv. ${data.opponent.level})`);
+
+        // Mostra le informazioni del match per qualche secondo prima di iniziare
+        setTimeout(() => this.startMatch(data), 3000);
     }
 
     startMatch(matchData) {
-        // Salva i dati del match in localStorage per la pagina di gioco
+        // Dati letti da game.html?mode=pvp. rejoinToken permette di ricollegarsi
+        // alla stessa partita dopo il cambio pagina (che chiude questa connessione).
         localStorage.setItem('currentMatchData', JSON.stringify({
             matchId: matchData.matchId,
+            rejoinToken: matchData.rejoinToken,
             opponent: matchData.opponent,
             gameState: matchData.gameState,
             playerRole: matchData.playerRole,
             mode: 'pvp'
         }));
 
-        // Naviga alla pagina di gioco
-        window.location.href = 'game.html?mode=pvp';
+        this.isLeaving = true;
+        window.location.href = '/game.html?mode=pvp';
     }
 
     toggleMatchmaking() {
@@ -283,20 +238,13 @@ class ArenaManager {
             this.updateStatusMessage('Errore: non connesso al server');
             return;
         }
-
         if (!this.playerData) {
             this.updateStatusMessage('Errore: dati giocatore non caricati');
             return;
         }
-
         if (!this.playerId) {
-            this.updateStatusMessage('Errore: non registrato sul server. Attendi...');
-            // Riprova la registrazione
-            setTimeout(() => {
-                if (this.ws && this.playerData) {
-                    this.registerPlayer();
-                }
-            }, 1000);
+            this.updateStatusMessage('Registrazione sul server in corso, attendi...');
+            this.registerPlayer();
             return;
         }
 
@@ -308,33 +256,23 @@ class ArenaManager {
     }
 
     joinMatchmaking() {
-        if (!this.playerId) {
-            console.error('❌ Tentativo di matchmaking senza essere registrati');
-            this.updateStatusMessage('Errore: non registrato sul server');
-            return;
-        }
-
-        const matchmakingData = {
+        this.send({
             type: 'joinMatchmaking',
             level: this.playerData.livello || 1,
-            winRate: this.playerData.vittorie/this.playerData.partite || 0,
-            totalMatches: this.playerData.partite || 0
-        };
-
-        console.log('📤 Invio richiesta matchmaking:', matchmakingData);
-        this.ws.send(JSON.stringify(matchmakingData));
+            vittorie: this.playerData.vittorie || 0,
+            partite: this.playerData.partite || 0
+        });
         this.updateStatusMessage('Entrando in coda...');
     }
 
     leaveMatchmaking() {
         if (this.matchmakingStatus === 'searching') {
-            this.ws.send(JSON.stringify({ type: 'leaveMatchmaking' }));
+            this.send({ type: 'leaveMatchmaking' });
         }
     }
 
     updateMatchmakingUI() {
         const btn = document.getElementById('matchmaking-btn');
-        
         switch (this.matchmakingStatus) {
             case 'idle':
                 btn.textContent = 'Cerca Partita';
@@ -348,84 +286,53 @@ class ArenaManager {
                 btn.textContent = 'Match Trovato!';
                 btn.disabled = true;
                 break;
-            case 'in_game':
-                btn.textContent = 'In Partita';
-                btn.disabled = true;
-                break;
         }
     }
 
     updateStatusMessage(message) {
         const statusElement = document.getElementById('status-message');
-        if (statusElement) {
-            statusElement.textContent = message;
-        }
+        if (statusElement) statusElement.textContent = message;
     }
 
     updateConnectionStatus(status) {
-        // Aggiungi indicatore di connessione se non esiste
         let indicator = document.getElementById('connection-status');
         if (!indicator) {
             indicator = document.createElement('div');
             indicator.id = 'connection-status';
-            indicator.className = 'connection-indicator';
             document.getElementById('arena-container').appendChild(indicator);
         }
-        
         indicator.textContent = `Stato: ${status}`;
-        indicator.className = `connection-indicator ${
-            status === 'Connesso' ? 'connected' : 'disconnected'
-        }`;
+        indicator.className = `connection-indicator ${status === 'Connesso' ? 'connected' : 'disconnected'}`;
     }
 
     updateOnlineCount(count) {
         const element = document.getElementById('online-players-count');
-        if (element) {
-            element.textContent = count;
-        }
+        if (element) element.textContent = count;
     }
 
-    setArenaTheme(mode) {
-        const theme = mode === 'night' ? 'night' : 'day';
-        document.body.classList.remove('day', 'night');
-        document.body.classList.add(theme);
-        localStorage.setItem('mode', theme);
-    }
-
-    initArenaTheme() {
-        const saved = localStorage.getItem('mode');
-        this.setArenaTheme(saved === 'night' ? 'night' : 'day');
+    updateReadyCount(count) {
+        const element = document.getElementById('ready-players-count');
+        if (element) element.textContent = count;
     }
 
     showLeaderboard() {
-        if (!this.isConnected) {
+        document.body.classList.add('show-leaderboard');
+        if (!this.send({ type: 'requestLeaderboard' })) {
             this.updateStatusMessage('Non connesso al server per la classifica.');
             return;
-        }
-        // Attiva la classe CSS che sposta la visualizzazione
-        document.body.classList.add('show-leaderboard');
-        
-        // Richiedi i dati aggiornati al server
-        if (this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({ type: 'requestLeaderboard' }));
-            console.log("📤 Richiesta leaderboard inviata");
-        } else {
-            console.warn("⚠️ WebSocket non ancora aperto, riprovo tra un attimo...");
-            setTimeout(() => this.requestLeaderboard(), 300);
         }
         this.updateStatusMessage('Caricamento classifica PvP...');
     }
 
     hideLeaderboard() {
-        // Rimuove la classe CSS per tornare alla vista principale
         document.body.classList.remove('show-leaderboard');
     }
 
     renderLeaderboard(leaderboard) {
         const listContainer = document.getElementById('leaderboard-list');
         if (!listContainer) return;
-        
-        listContainer.innerHTML = ''; // Pulisci la lista precedente
+
+        listContainer.innerHTML = '';
         this.updateStatusMessage('Classifica aggiornata');
 
         if (leaderboard.length === 0) {
@@ -435,7 +342,6 @@ class ArenaManager {
 
         const ul = document.createElement('ul');
         ul.className = 'leaderboard-list';
-        
         ul.innerHTML = `
             <li class="header">
                 <span class="rank">#</span>
@@ -445,33 +351,28 @@ class ArenaManager {
                 <span class="matches">Partite</span>
             </li>
         `;
-        
+
+        const rankClasses = ['gold-rank', 'silver-rank', 'bronze-rank'];
         leaderboard.forEach((player, index) => {
             const li = document.createElement('li');
-            const winRatePercent = (player.winRate * 100).toFixed(1);
-        
-            li.innerHTML = `
-                <span class="rank">#${index + 1}</span>
-                <span class="name">${player.username} (Liv. ${player.level})</span>
-                <span class="winrate">${winRatePercent}%</span>
-                <span class="wins">${player.vittorie || 0}</span>
-                <span class="matches">${player.partite}</span>
-            `;
-        
-            // Evidenzia il proprio record
-            if (this.playerData && this.playerData.username === player.username) {
-                li.classList.add('my-rank');
+            // textContent (non innerHTML): i nomi utente sono scelti dai giocatori
+            const cells = [
+                ['rank', `#${index + 1}`],
+                ['name', `${player.username} (Liv. ${player.level})`],
+                ['winrate', `${(player.winRate * 100).toFixed(1)}%`],
+                ['wins', player.vittorie || 0],
+                ['matches', player.partite]
+            ];
+            for (const [className, text] of cells) {
+                const span = document.createElement('span');
+                span.className = className;
+                span.textContent = text;
+                li.appendChild(span);
             }
-        
-            // Colorazioni per i primi 3
-            if (index === 0) {
-                li.classList.add('gold-rank'); // Dorato
-            } else if (index === 1) {
-                li.classList.add('silver-rank'); // Argento
-            } else if (index === 2) {
-                li.classList.add('bronze-rank'); // Bronzo
-            }
-        
+
+            if (this.playerData && this.playerData.username === player.username) li.classList.add('my-rank');
+            if (rankClasses[index]) li.classList.add(rankClasses[index]);
+
             ul.appendChild(li);
         });
 
@@ -479,15 +380,6 @@ class ArenaManager {
     }
 }
 
-// Inizializza l'arena manager quando la pagina è caricata
-window.addEventListener('DOMContentLoaded', () => {
-    new ArenaManager();
-});
-
-// Funzioni globali per retrocompatibilità
-function startTrainingMode() {
-    window.location.href = 'game.html?mode=training';
-}
-
-// Export per uso esterno se necessario
-export { ArenaManager };
+initColorTheme();
+initUITheme();
+new ArenaManager();

@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <title>Spellcasters - Arena</title>
-  <link rel="stylesheet" href="/style-base.css">
-  <link rel="stylesheet" href="/style-buttons.css">
-  <link rel="stylesheet" href="/style-arena.css">
+  <link rel="stylesheet" href="/css/style-base.css" data-ui-theme>
+  <link rel="stylesheet" href="/css/style-buttons.css" data-ui-theme>
+  <link rel="stylesheet" href="/css/style-arena.css" data-ui-theme>
 </head>
 <body>
   <button id="home-btn" class="main-btn">Home</button>
-  
+
   <button id="open-leaderboard-btn" class="slide-btn right-btn">
       Classifica
   </button>
-  
-  <div id="main-view-wrapper"> 
-      
+
+  <div id="main-view-wrapper">
+
       <div id="arena-container">
           <h1 id="arena-title">Arena Multiplayer</h1>
           <div id="matchmaking-status">
@@ -43,10 +43,11 @@
           <h2 id="arena-title">Classifica PvP Globale</h2>
           <p>(Minimo 10 Partite Giocate)</p>
           <div id="leaderboard-list">
-              <p>Caricamento dati...</p> </div>
+              <p>Caricamento dati...</p>
+          </div>
       </div>
-      
+
   </div>
-  <script type="module" src="./arena.js"></script>
+  <script type="module" src="./js/pages/arena.page.js"></script>
 </body>
 </html>

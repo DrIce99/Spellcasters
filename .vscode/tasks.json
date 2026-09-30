@@ -2,10 +2,25 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Install WebSocket dependencies",
-			"type": "shell",
-			"command": "npm install ws uuid",
-			"group": "build"
+			"label": "Client: avvia (vite dev)",
+			"type": "npm",
+			"script": "dev",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Server: avvia (WebSocket, porta 8080)",
+			"type": "npm",
+			"script": "server",
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Build di produzione",
+			"type": "npm",
+			"script": "build",
+			"group": "build",
+			"problemMatcher": []
 		}
 	]
 }

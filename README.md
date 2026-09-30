@@ -1,6 +1,64 @@
 # Spellcasters
 A simple web app game with *magic*
 
+## Per lo sviluppatore
+
+### Struttura del progetto
+
+```
+Spellcasters/
+├── package.json          ← UNICO package.json (client + server)
+├── vite.config.js        ← Vite usa client/ come root, la build finisce in dist/
+├── .env.example          ← copialo in .env.local per usare il server locale
+├── client/               ← tutto ciò che gira nel BROWSER
+│   ├── index.html        ← login/registrazione
+│   ├── home.html, lab.html, arena.html, game.html, player-info.html, version.html
+│   ├── js/
+│   │   ├── pages/        ← uno script per pagina (index.html → login.page.js, home.html → home.page.js, ...)
+│   │   ├── game/         ← motore di gioco
+│   │   │   ├── engine.js          ← loop principale: simboli, cerchi magici, proiezioni, mana, esperienza
+│   │   │   ├── pvp-manager.js     ← partite PvP (WebSocket)
+│   │   │   ├── training.js        ← manichino del training
+│   │   │   ├── elements.js        ← elementi e colori condivisi
+│   │   │   ├── progression.js     ← curve di livello/esperienza/mana
+│   │   │   ├── dollar-recognizer.js, element-patterns.js, status-effects.js, ...
+│   │   │   └── entities/enemy.js
+│   │   ├── services/     ← config.js (URL server, Firebase), firebase.js, player-db.js
+│   │   └── ui/           ← theme.js (giorno/notte, Classic/Rework), fog-background.js
+│   ├── public/           ← file statici copiati così come sono: css/, sound/, img/
+│   └── dev/              ← pagine di sviluppo NON incluse nella build (preview pattern, prototipo Open World)
+└── server/
+    └── server.js         ← server WebSocket: matchmaking, PvP, classifica
+```
+
+### Comandi
+
+```bash
+npm install        # una volta sola, nella root
+npm run dev        # client in sviluppo (http://localhost:5173)
+npm run server     # server WebSocket locale (porta 8080)
+npm run build      # build di produzione in dist/
+```
+
+Di default il client usa il server online (`wss://spellcasters.onrender.com`).
+Per usare quello locale crea `.env.local` nella root con `VITE_WS_URL=ws://localhost:8080`.
+
+Il server in locale ha bisogno di `server/serviceAccountKey.json` (credenziali Firebase Admin, **mai** da committare);
+online usa la variabile d'ambiente `FIREBASE_SERVICE_ACCOUNT`.
+
+### Deploy
+
+- **Server** (Render): comando di avvio `npm start` dalla root del repository.
+- **Client**: root del repository, comando di build `npm run build`, cartella da pubblicare `dist/`.
+
+### Flusso di una partita PvP
+
+1. `arena.html` si registra al server e entra in coda.
+2. Il server crea la partita e invia `matchFound` con un `rejoinToken` personale.
+3. L'Arena passa a `game.html?mode=pvp`: la vecchia connessione si chiude, la nuova invia `rejoinMatch`
+   (il server aspetta fino a 20 secondi prima di assegnare la sconfitta a tavolino).
+4. Entrambi premono "Sono pronto" → countdown → partita attiva.
+
 **ITA**
 
 N.B. Per Player e Caster si intende la stessa cosa

@@ -92,8 +92,7 @@ class AudioManager {
             START_2: 'start_2'
         };
 
-        // localmente devi aggiungere "src/" davanti a sound in ogni path
-        // Mappatura dei suoni ai file audio (da aggiornare con i percorsi reali)
+        // Percorsi relativi a client/public (Vite li serve dalla root del sito)
         this.soundFiles = {
             // [ES: 'nome_sfx']: 'path/to/audio/file.wav'
             // --- ATTUALI ---
@@ -104,7 +103,7 @@ class AudioManager {
             [this.soundTypes.PROJECTILE_ARIA]: '/sound/sfx/proj/right air swoosh.wav',
             [this.soundTypes.PROJECTILE_TERRA]: '/sound/sfx/proj/right earth swoosh.wav',
             // --- FUTURI ---
-            [this.soundTypes.SPELL_SPATIAL_NEUTRAL]: '/sound/sfx/hold/spell_spatial_neutral.wav',
+            // SPELL_SPATIAL_NEUTRAL: file non ancora creato (l'area neutra per ora è silenziosa)
             [this.soundTypes.SPELL_SPATIAL_FUOCO]: '/sound/sfx/hold/fire hold.wav',
             [this.soundTypes.SPELL_SPATIAL_ACQUA]: '/sound/sfx/hold/water hold.wav',
             [this.soundTypes.SPELL_SPATIAL_ARIA]: '/sound/sfx/hold/air hold.wav',
@@ -201,7 +200,7 @@ class AudioManager {
 
     loadGlobalVolume() {
         const saved = localStorage.getItem('audioVolume');
-        const percent = saved ? parseInt(saved) : 100;
+        const percent = saved ? parseInt(saved) : 50; // stesso default dello slider nelle impostazioni
         return Math.max(0, Math.min(1, percent / 100));
     }
 
@@ -225,7 +224,10 @@ class AudioManager {
 
             // Se hai un file impulse response (es. 'reverb_hall.wav'):
             fetch('/sound/impulse/reverb_hall.wav')
-                .then(res => res.arrayBuffer())
+                .then(res => {
+                    if (!res.ok) throw new Error('impulse non trovato');
+                    return res.arrayBuffer();
+                })
                 .then(buf => this.audioContext.decodeAudioData(buf))
                 .then(decoded => {
                     this.convolver.buffer = decoded;
@@ -444,9 +446,9 @@ class AudioManager {
     }
 
     // Metodo per riprodurre un suono di disegno casuale
-    playDrawingSound() {
+    playDrawingSound(volume = 0.3) {
         const randomSoundType = this.drawingSoundTypes[Math.floor(Math.random() * this.drawingSoundTypes.length)];
-        this.playSound(randomSoundType);
+        this.playSound(randomSoundType, volume);
     }
 
     playClockSound() {

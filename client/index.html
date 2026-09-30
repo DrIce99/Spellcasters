@@ -2,11 +2,11 @@
 <html lang="it">
 <head>
   <meta charset="UTF-8" />
-  <link rel="stylesheet" href="./style-base.css" />
-  <link rel="stylesheet" href="./style-buttons.css" />
-  <link rel="stylesheet" href="./style-home.css" />
-  <link rel="stylesheet" href="./style-modal.css" />
-  <link rel="stylesheet" href="./style-expbar.css" />
+  <link rel="stylesheet" href="/css/style-base.css" />
+  <link rel="stylesheet" href="/css/style-buttons.css" />
+  <link rel="stylesheet" href="/css/style-home.css" />
+  <link rel="stylesheet" href="/css/style-modal.css" />
+  <link rel="stylesheet" href="/css/style-expbar.css" />
   <title>Spellcaster - Login</title>
   <style>
     #login-container {
@@ -53,16 +53,9 @@
       font-size: 1rem;
       min-height: 1.2em;
     }
-    #theme-toggle-index {
-      position: fixed;
-      top: 18px;
-      right: 18px;
-      z-index: 1000;
-    }
   </style>
 </head>
 <body>
-  <!-- <div id="theme-toggle-index"></div> -->
   <div id="login-container">
     <h1 id="home-title">Spellcasters</h1>
     <form id="login-form">
@@ -84,188 +77,6 @@
       <span id="switch-link2">Hai già un account? Login</span>
     </form>
   </div>
-  <script type="module">
-    import { createThemeToggle, initTheme, getTheme } from './theme.js';
-    import { savePlayerData, getPlayerData } from './player-db.js';
-    initTheme();
-    // Aggiorna la classe del body per il tema
-    function updateBodyThemeClass() {
-      const theme = getTheme();
-      document.body.classList.remove('day', 'night');
-      document.body.classList.add(theme);
-    }
-    updateBodyThemeClass();
-    window.onThemeChange = updateBodyThemeClass;
-    // document.getElementById('theme-toggle-index').appendChild(themeToggle);
-    // Disabilita cambio tema da tastiera se un input è attivo
-    window.addEventListener('keydown', (e) => {
-      const active = document.activeElement;
-      if ((e.key === 'n' || e.key === 'N' || e.key === 'g' || e.key === 'G') && (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) ) {
-        e.stopPropagation();
-      }
-    }, true);
-
-    async function hashPassword(password) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(password);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    // Placeholder cifratura base64 (da sostituire con hash sicuro in futuro)
-    function encodePassword(pw) {
-      return btoa(unescape(encodeURIComponent(pw)));
-    }
-    function decodePassword(pw) {
-      return decodeURIComponent(escape(atob(pw)));
-    }
-    // Struttura player
-    function getDefaultPlayer(username, hashedPassword) {
-      return {
-        username,
-        password: hashedPassword,
-        livello: 1,
-        esperienza: 0,
-        magie: [], // {elemento, proiezione}
-        vittorie: 0,
-        partite: 0,
-        affinita: {}, // {fuoco: 0, acqua: 0, aria: 0, terra: 0, ...}
-        predisposizione: {} // {proiettile: 0, ...}
-      };
-    }
-    // Salva utente in localStorage (come array di player)
-    function savePlayer(player) {
-      let players = JSON.parse(localStorage.getItem('players') || '[]');
-      players = players.filter(p => p.username !== player.username);
-      // Assicura che i nuovi campi esistano
-      if (!player.affinita) player.affinita = {};
-      if (!player.predisposizione) player.predisposizione = {};
-      players.push(player);
-      localStorage.setItem('players', JSON.stringify(players));
-    }
-    function getPlayer(username) {
-      let players = JSON.parse(localStorage.getItem('players') || '[]');
-      let p = players.find(p => p.username === username);
-      // Assicura che i nuovi campi esistano anche su player vecchi
-      if (p) {
-        if (!p.affinita) p.affinita = {};
-        if (!p.predisposizione) p.predisposizione = {};
-      }
-      return p;
-    }
-
-    async function verifyPassword(inputPassword, storedPassword) {
-      // Prima prova con SHA-256
-      const hashedInput = await hashPassword(inputPassword);
-      if (hashedInput === storedPassword) {
-        return true;
-      }
-      
-      // Fallback per vecchi account con base64
-      const encodedInput = encodePassword(inputPassword);
-      return encodedInput === storedPassword;
-    }
-
-    // Login
-    document.getElementById('login-form').onsubmit = async function(e) {
-      e.preventDefault();
-      const user = document.getElementById('login-username').value;
-      const pw = document.getElementById('login-password').value;
-
-      let player = getPlayer(user);
-
-      if (!player) {
-        // Prova a recuperare da Firebase
-        player = await getPlayerData(user);
-        if (player) {
-          player.username = user;
-          // Assicura che abbia tutti i campi necessari
-          if (!player.affinita) player.affinita = {};
-          if (!player.predisposizione) player.predisposizione = {};
-          savePlayer(player); // Salva localmente per i prossimi login
-        }
-      }
-
-      const passwordMatch = await verifyPassword(pw, player.password);
-
-      if (!passwordMatch) {
-        document.getElementById('login-error').textContent = 'Nome utente o password errati.';
-        return;
-      }
-
-      localStorage.setItem('currentPlayer', user);
-      window.location.href = '/home.html';
-    };
-
-    // Signup
-    document.getElementById('signup-form').onsubmit = async function(e) {
-      e.preventDefault();
-      const user = document.getElementById('signup-username').value.trim();
-      const pw = document.getElementById('signup-password').value;
-      if (!user || !pw) {
-        document.getElementById('signup-error').textContent = 'Compila tutti i campi.';
-        return;
-      }
-      if (getPlayer(user) || await getPlayerData(user)) {
-        document.getElementById('signup-error').textContent = 'Nome utente già esistente.';
-        return;
-      }
-      const hashedPassword = await hashPassword(pw);
-      const player = getDefaultPlayer(user, hashedPassword);
-      savePlayer(player);
-      document.getElementById('signup-error').textContent = 'Registrazione avvenuta! Ora puoi fare login.';
-      setTimeout(() => {
-        document.getElementById('signup-form').style.display = 'none';
-        document.getElementById('login-form').style.display = '';
-      }, 1200);
-      // Salva anche su Firebase
-      await savePlayerData(user, {
-        password: hashedPassword,
-        esperienza: 0,
-        livello: 1,
-        affinita: {},
-        proiezioniUsate: {},
-        mana: 0,
-        manaMax: 10,
-        vittorie: 0,
-        partite: 0,
-        magie: [],
-        predisposizione: {}
-      });
-    };
-    // Switch tra login/signup
-    document.getElementById('switch-link').onclick = () => {
-      document.getElementById('login-form').style.display = 'none';
-      document.getElementById('signup-form').style.display = '';
-    };
-    document.getElementById('switch-link2').onclick = () => {
-      document.getElementById('signup-form').style.display = 'none';
-      document.getElementById('login-form').style.display = '';
-    };
-  </script>
-  <script type="module">
-    // Import the functions you need from the SDKs you need
-    import { initializeApp } from "firebase/app";
-    import { getAnalytics } from "firebase/analytics";
-    // TODO: Add SDKs for Firebase products that you want to use
-    // https://firebase.google.com/docs/web/setup#available-libraries
-
-    // Your web app's Firebase configuration
-    // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-    const firebaseConfig = {
-      apiKey: "AIzaSyApUmQPCgluD8YFBmuyqJmeNtbzHQmdTlo",
-      authDomain: "spellcasters-b7154.firebaseapp.com",
-      projectId: "spellcasters-b7154",
-      storageBucket: "spellcasters-b7154.firebasestorage.app",
-      messagingSenderId: "67384342350",
-      appId: "1:67384342350:web:089bd6200216d34ad4d01f",
-      measurementId: "G-NFLJ2L0JHF"
-    };
-
-    // Initialize Firebase
-    const app = initializeApp(firebaseConfig);
-    const analytics = getAnalytics(app);
-  </script>
+  <script type="module" src="./js/pages/login.page.js"></script>
 </body>
 </html>

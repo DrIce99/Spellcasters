@@ -1,0 +1,47 @@
+/* style-arena-rework.css */
+
+/* Riprende gli stili base del rework */
+
+#arena-container, #leaderboard-panel {
+    background: transparent;
+    font-family: var(--font-family-rework);
+}
+
+#arena-title {
+    font-size: 2.5em;
+    color: var(--home-title-color);
+    text-shadow: 0 0 8px var(--home-title-color);
+}
+
+/* Stili per i pannelli delle info e stato */
+#player-info, #online-status, #matchmaking-status {
+    background: var(--rework-button-bg);
+    border: 1px solid var(--rework-secondary-color);
+    padding: 20px;
+    margin: 10px 0;
+    width: 350px;
+    clip-path: polygon(5% 0, 95% 0, 100% 50%, 95% 100%, 5% 100%, 0 50%); /* Esagono semplice */
+}
+
+/* Classifica (Leaderboard) */
+.leaderboard-list {
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.leaderboard-list li {
+    background: rgba(0, 0, 0, 0.15);
+    border-bottom: 1px solid var(--rework-grid-color);
+    font-family: var(--font-family-rework);
+}
+
+.leaderboard-list li.header {
+    color: var(--rework-primary-color);
+    border-bottom: 2px solid var(--rework-primary-color);
+}
+
+.leaderboard-list li.gold-rank {
+    color: gold;
+    background: rgba(255, 215, 0, 0.1);
+}

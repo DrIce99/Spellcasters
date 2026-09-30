@@ -1,0 +1,15 @@
+/* style-expbar-rework.css */
+
+/* Stili per le barre EXP e Mana, ora geometriche */
+.exp-bar-container {
+    border: 1px solid var(--rework-primary-color);
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 0;
+    box-shadow: 0 0 10px var(--rework-primary-color);
+    clip-path: polygon(5% 0, 100% 0, 95% 100%, 0 100%); /* Forma a parallelogramma */
+}
+
+.exp-bar-fill {
+    background: linear-gradient(90deg, #7f5cff, #00eaff);
+    clip-path: polygon(5% 0, 100% 0, 95% 100%, 0 100%);
+}

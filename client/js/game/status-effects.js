@@ -173,7 +173,8 @@ class StunnedEffect extends StatusEffect {
         this.isCurrentlyStunned = false;
         this.nextStunTime = 0;
         this.stunCount = 0;
-        this.maxStuns = Math.floor(config.totalDuration / config.stunInterval);
+        // Ciclo: stun (stunDuration) + pausa (stunInterval)
+        this.maxStuns = Math.ceil(config.totalDuration / (config.stunDuration + config.stunInterval));
         this.currentStunRemaining = 0;
         this.nextParticleTime = 0; // ⭐ NUOVO
 
@@ -195,7 +196,8 @@ class StunnedEffect extends StatusEffect {
             this.currentStunRemaining = this.config.stunDuration;
             StatusEffectManager.applyStun(this.targetId, true);
             this.stunCount++;
-            this.nextStunTime = this.config.stunInterval;
+            // Il prossimo stun parte dopo la fine di questo + la pausa
+            this.nextStunTime = this.config.stunDuration + this.config.stunInterval;
         }
 
         if (this.isCurrentlyStunned) {
@@ -442,12 +444,6 @@ updateElementConfig('acqua', { speedReduction: 0.6 });
 // Nerf terra (meno stun)
 updateElementConfig('terra', { totalDuration: 1.5, duration: 1.5 });
 
-
-function createDebuffParticles(targetId, effectType, position) {
-    const instance = statusEffectManager;
-    const callback = instance.visualCallbacks.get(targetId);
-    if (callback) callback(effectType, position);
-}
 
 export function createElementalDebuffParticles(element, position, activeMagicParticles) {
     if (!activeMagicParticles) return;
