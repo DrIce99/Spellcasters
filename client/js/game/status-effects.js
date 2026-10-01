@@ -464,6 +464,7 @@ export function createElementalDebuffParticles(element, position, activeMagicPar
                     dx: (Math.random() - 0.5) * 0.5,
                     dy: Math.random() * -1 - 0.5,
                     color: `rgba(255, ${50 + Math.random() * 50}, 0, `,
+                    element: 'fuoco',
                 });
             }
             break;
@@ -479,6 +480,7 @@ export function createElementalDebuffParticles(element, position, activeMagicPar
                     dx: (Math.random() - 0.5) * 0.3,
                     dy: Math.random() * 2 + 1,
                     color: `rgba(${100 + Math.random() * 50}, ${150 + Math.random() * 100}, 255, `,
+                    element: 'acqua',
                 });
             }
             break;
@@ -496,6 +498,7 @@ export function createElementalDebuffParticles(element, position, activeMagicPar
                     dx: Math.cos(angle) * speed,
                     dy: Math.sin(angle) * speed,
                     color: `rgba(170, 170, 238, `,
+                    element: 'aria',
                     swirl: Math.random() * 0.3 + 0.1
                 });
             }
@@ -512,6 +515,7 @@ export function createElementalDebuffParticles(element, position, activeMagicPar
                     dx: (Math.random() - 0.5) * 1,
                     dy: (Math.random() - 0.5) * 1,
                     color: `rgba(${180 + Math.random() * 40}, ${160 + Math.random() * 30}, ${100 + Math.random() * 40}, `,
+                    element: 'terra',
                     baseX: position.x,
                     baseY: position.y,
                     vibrateSpeed: Math.random() * 0.2 + 0.1

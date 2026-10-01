@@ -442,7 +442,8 @@ export class PvPManager {
                 alpha: 0.8,
                 dx: (Math.random() - 0.5) * 2,
                 dy: Math.random() * -2 - 1,
-                color: `rgba(255, ${50 + Math.random() * 50}, 0, `
+                color: `rgba(255, ${50 + Math.random() * 50}, 0, `,
+                element: 'fuoco'
             });
         }
     }
@@ -880,7 +881,8 @@ export class PvPManager {
                 alpha: 0.1 + Math.random() * 0.1,
                 dx: (Math.random() - 0.5) * 0.3,
                 dy: (Math.random() - 0.5) * 0.3,
-                color
+                color,
+                element
             });
         }
     }

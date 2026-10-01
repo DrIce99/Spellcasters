@@ -6,6 +6,7 @@ import { drawElementPattern, drawProjectilePolygonPattern } from "./element-patt
 import { loadPlayerFromDB, savePlayerData, incrementPlayerCounters, getCurrentUsername } from "../services/player-db.js";
 import { VirtualMouseEntity, globalCollisionSystem } from "./collision-system.js";
 import { Spark } from "./sparks.js";
+import { drawParticleShape } from "./particle-shapes.js";
 import { PvPManager } from "./pvp-manager.js";
 import { applyCameraShake, triggerCameraShake, updateRedOverlay, drawRedOverlay } from './damage-effects.js';
 import { statusEffectManager, applyElementalHit, updateStatusEffects, createElementalDebuffParticles } from "./status-effects.js";
@@ -580,7 +581,8 @@ function drawMagicCircle() {
       alpha: 0.1 + Math.random() * 0.1,
       dx: (Math.random() - 0.5) * 0.3,
       dy: (Math.random() - 0.5) * 0.3,
-      color: circleColor
+      color: circleColor,
+      element: elemento
     });
   }
 }
@@ -604,7 +606,8 @@ function drawNextChargeParticles() {
       alpha: 0.18 + Math.random() * 0.18,
       dx: (Math.random() - 0.5) * 0.5,
       dy: (Math.random() - 0.5) * 0.5,
-      color
+      color,
+      element: magicCircle.elemento
     });
   }
 }
@@ -651,7 +654,8 @@ function launchProjectile(start, end, { element = null, tipo = "proiettile" } = 
       alpha: 0.18 + Math.random() * 0.18,
       dx: (Math.random() - 0.5) * 1.5,
       dy: (Math.random() - 0.5) * 1.5,
-      color
+      color,
+      element
     });
   }
 
@@ -715,7 +719,8 @@ function updateProjectiles() {
         alpha: 0.22 + Math.random() * 0.18,
         dx: (Math.random() - 0.5) * 1.1,
         dy: (Math.random() - 0.5) * 1.1,
-        color: p.color || NEUTRAL_COLOR
+        color: p.color || NEUTRAL_COLOR,
+        element: p.element
       });
     }
 
@@ -784,7 +789,8 @@ function activateSpazialeArea(polygon, color, element) {
         alpha: 0.5 + Math.random() * 0.3,
         dx: (Math.random() - 0.5) * 0.5,
         dy: (Math.random() - 0.5) * 0.5,
-        color
+        color,
+        element
       });
     }
   }
@@ -872,7 +878,8 @@ function drawPermanentSpazialeAreas() {
         alpha: 0.4 + Math.random() * 0.3,
         dx: (Math.random() - 0.5) * 0.5,
         dy: (Math.random() - 0.5) * 0.5,
-        color: area.color
+        color: area.color,
+        element: area.variant ? null : area.element
       });
     }
   }
@@ -1205,6 +1212,7 @@ function showElementEffect(type, position) {
           alpha: 1,
           dy: Math.random() * -2 - 0.5,
           dx: (Math.random() - 0.5) * 0.5,
+          element: 'fuoco',
           color: `rgba(${200 + Math.random() * 55}, ${50 + Math.random() * 80}, 0, ${Math.random() * 0.8 + 0.2})`
         });
       }
@@ -1218,6 +1226,7 @@ function showElementEffect(type, position) {
           alpha: 0.8,
           dy: Math.random() * 2 + 1,
           dx: (Math.random() - 0.5) * 0.3,
+          element: 'acqua',
           color: `rgba(${100 + Math.random() * 50}, ${150 + Math.random() * 100}, 255, ${Math.random() * 0.6 + 0.3})`
         });
       }
@@ -1233,6 +1242,7 @@ function showElementEffect(type, position) {
           alpha: 0.6,
           dy: Math.sin(angle) * speed,
           dx: Math.cos(angle) * speed,
+          element: 'aria',
           color: 'rgba(170,170,238,'
         });
       }
@@ -1249,6 +1259,7 @@ function showElementEffect(type, position) {
           alpha: 1,
           dy: Math.random() * 0.2 - 0.1,
           dx: Math.random() * 0.2 - 0.1,
+          element: 'terra',
           color: `rgba(${r},${g},${b},`
         });
       }
@@ -1289,10 +1300,7 @@ function particleFillStyle(p) {
 
 function drawFireParticles() {
   for (const p of fireParticles) {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.radius, 0, 2 * Math.PI);
-    ctx.fillStyle = particleFillStyle(p);
-    ctx.fill();
+    drawParticleShape(ctx, p, particleFillStyle(p));
     p.x += p.dx;
     p.y += p.dy;
     p.alpha -= 0.015;
@@ -1304,10 +1312,7 @@ function drawFireParticles() {
 function drawMagicParticles() {
   for (let i = activeMagicParticles.length - 1; i >= 0; i--) {
     const p = activeMagicParticles[i];
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.radius, 0, 2 * Math.PI);
-    ctx.fillStyle = particleFillStyle(p);
-    ctx.fill();
+    drawParticleShape(ctx, p, particleFillStyle(p));
     p.x += p.dx;
     p.y += p.dy;
     p.alpha -= 0.01;
