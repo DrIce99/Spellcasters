@@ -198,6 +198,12 @@ class ArenaManager {
                 this.updateMatchmakingUI();
                 break;
 
+            case 'sessionReplaced':
+                // Lo stesso utente si è collegato altrove: niente riconnessione automatica
+                this.isLeaving = true;
+                this.updateStatusMessage('Sessione aperta in un\'altra scheda. Ricarica la pagina per usare questa.');
+                break;
+
             case 'leaderboardData':
                 this.renderLeaderboard(data.leaderboard);
                 break;
@@ -225,6 +231,7 @@ class ArenaManager {
             rejoinToken: matchData.rejoinToken,
             opponent: matchData.opponent,
             gameState: matchData.gameState,
+            arenaSize: matchData.arenaSize,
             playerRole: matchData.playerRole,
             mode: 'pvp'
         }));
@@ -260,7 +267,9 @@ class ArenaManager {
             type: 'joinMatchmaking',
             level: this.playerData.livello || 1,
             vittorie: this.playerData.vittorie || 0,
-            partite: this.playerData.partite || 0
+            partite: this.playerData.partite || 0,
+            // Il server ne ricava l'arena quadrata condivisa tra i due giocatori
+            viewport: { width: window.innerWidth, height: window.innerHeight }
         });
         this.updateStatusMessage('Entrando in coda...');
     }

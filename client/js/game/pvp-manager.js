@@ -12,9 +12,10 @@ const OPPONENT_COLOR = '#ff6666';
 const HIT_RADIUS = 30;
 
 export class PvPManager {
-    constructor(gameCanvas, gameContext) {
+    constructor(gameCanvas, gameContext, world) {
         this.canvas = gameCanvas;
         this.ctx = gameContext;
+        this.world = world; // arena condivisa: tutte le coordinate sono relative a questa
         this.ws = null;
         this.isConnected = false;
         this.intentionalDisconnect = false;
@@ -98,9 +99,10 @@ export class PvPManager {
         this.loadHealthFromStorage();
 
         // Posizione iniziale dell'avversario (lato opposto dello schermo)
-        const startX = this.playerRole === 'player1' ? this.canvas.width - 200 : 200;
-        this.opponent.position = { x: startX, y: this.canvas.height / 2 };
-        this.opponent.virtualMouse = { x: startX, y: this.canvas.height / 2 };
+        const margin = Math.min(200, this.world.width / 4);
+        const startX = this.playerRole === 'player1' ? this.world.width - margin : margin;
+        this.opponent.position = { x: startX, y: this.world.height / 2 };
+        this.opponent.virtualMouse = { x: startX, y: this.world.height / 2 };
 
         this.setupPreMatchOverlay();
         this.connectToGameServer();
@@ -294,8 +296,8 @@ export class PvPManager {
 
         // Il countdown è un cerchio magico con 3 cariche casuali che si consumano
         this.countdownCircle = {
-            x: this.canvas.width / 2,
-            y: this.canvas.height / 2,
+            x: this.world.width / 2,
+            y: this.world.height / 2,
             radius: 150,
             projections: Array.from({ length: count }, () => this.getRandomProjectionType()),
             element: this.getRandomElement(),

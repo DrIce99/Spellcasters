@@ -19,8 +19,38 @@ const username = getCurrentUsername();
 const canvas = document.getElementById("spellCanvas");
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 const ctx = canvas.getContext("2d");
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+
+// === AREA DI GIOCO ===
+// Tutte le coordinate di gioco (mouse, cerchi, proiettili, aree) sono nel "mondo".
+// Nel training il mondo è l'intero schermo; nel PvP è un quadrato di lato fisso, uguale
+// per i due giocatori, centrato e rimpicciolito se la finestra è più piccola.
+const world = { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0, fixedSize: getPvPArenaSize() };
+
+function getPvPArenaSize() {
+  if (new URLSearchParams(window.location.search).get('mode') !== 'pvp') return null;
+  try {
+    const matchData = JSON.parse(localStorage.getItem('currentMatchData'));
+    if (matchData?.arenaSize > 0) return matchData.arenaSize;
+  } catch { /* dati assenti o corrotti: si usa il ripiego */ }
+  // Server vecchio senza arenaSize: almeno il quadrato resta dentro questo schermo
+  return Math.min(window.innerWidth, window.innerHeight);
+}
+
+function layoutWorld() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  if (world.fixedSize) {
+    world.width = world.height = world.fixedSize;
+    world.scale = Math.min(1, canvas.width / world.width, canvas.height / world.height);
+  } else {
+    world.width = canvas.width;
+    world.height = canvas.height;
+    world.scale = 1;
+  }
+  world.offsetX = (canvas.width - world.width * world.scale) / 2;
+  world.offsetY = (canvas.height - world.height * world.scale) / 2;
+}
+layoutWorld();
 
 // === COSTANTI ===
 const PROJECTILE_SPEED = 16;
@@ -62,7 +92,7 @@ let lastDrawSoundTime = 0;
 const particleCount = Number(localStorage.getItem('particleCount')) || 60;
 
 // Mouse virtuale: con il pointer lock segue il mouse reale con un po' di inerzia
-const virtualMouse = { x: canvas.width / 2, y: canvas.height / 2 };
+const virtualMouse = { x: world.width / 2, y: world.height / 2 };
 const mouseTarget = { x: virtualMouse.x, y: virtualMouse.y };
 const virtualMouseEntity = new VirtualMouseEntity(virtualMouse.x, virtualMouse.y);
 globalCollisionSystem.registerEntity(virtualMouseEntity);
@@ -104,7 +134,7 @@ function initializeGameMode() {
       window.location.href = '/arena.html';
       return;
     }
-    pvpManager = new PvPManager(canvas, ctx);
+    pvpManager = new PvPManager(canvas, ctx, world);
     console.log('🎮 Modalità PvP inizializzata');
   }
   registerPlayerStatusCallbacks();
@@ -226,8 +256,9 @@ canvas.addEventListener("mousemove", (e) => {
     movementX = -movementX;
     movementY = -movementY;
   }
-  mouseTarget.x = Math.max(0, Math.min(canvas.width, mouseTarget.x + movementX));
-  mouseTarget.y = Math.max(0, Math.min(canvas.height, mouseTarget.y + movementY));
+  // Il movimento è in pixel dello schermo: lo riportiamo alla scala del mondo
+  mouseTarget.x = Math.max(0, Math.min(world.width, mouseTarget.x + movementX / world.scale));
+  mouseTarget.y = Math.max(0, Math.min(world.height, mouseTarget.y + movementY / world.scale));
 
   if (isDrawingSpaziale) {
     spazialePolygonPoints.push({ x: virtualMouse.x, y: virtualMouse.y });
@@ -305,10 +336,7 @@ function resetInputState() {
   canvas.style.boxShadow = "none";
 }
 
-window.addEventListener("resize", () => {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-});
+window.addEventListener("resize", layoutWorld);
 
 
 // ============================================================
@@ -599,10 +627,10 @@ function launchProjectile(start, end, { element = null, tipo = "proiettile" } = 
     });
   }
 
-  // Durata = frame necessari per uscire dallo schermo
+  // Durata = frame necessari per uscire dall'area di gioco
   const times = [];
-  if (vx !== 0) times.push(vx > 0 ? (canvas.width - start.x) / vx : -start.x / vx);
-  if (vy !== 0) times.push(vy > 0 ? (canvas.height - start.y) / vy : -start.y / vy);
+  if (vx !== 0) times.push(vx > 0 ? (world.width - start.x) / vx : -start.x / vx);
+  if (vy !== 0) times.push(vy > 0 ? (world.height - start.y) / vy : -start.y / vy);
   const positiveTimes = times.filter(t => t > 0);
   const maxLife = Math.max(30, Math.floor(positiveTimes.length ? Math.min(...positiveTimes) : 1));
 
@@ -663,7 +691,7 @@ function updateProjectiles() {
       });
     }
 
-    if (p.life <= 0 || p.x < 0 || p.x > canvas.width || p.y < 0 || p.y > canvas.height) {
+    if (p.life <= 0 || p.x < 0 || p.x > world.width || p.y < 0 || p.y > world.height) {
       projectiles.splice(i, 1);
     }
   }
@@ -1133,8 +1161,8 @@ function updateVirtualMouse() {
     virtualMouse.y = mouseTarget.y;
   }
 
-  virtualMouse.x = Math.max(0, Math.min(canvas.width, virtualMouse.x));
-  virtualMouse.y = Math.max(0, Math.min(canvas.height, virtualMouse.y));
+  virtualMouse.x = Math.max(0, Math.min(world.width, virtualMouse.x));
+  virtualMouse.y = Math.max(0, Math.min(world.height, virtualMouse.y));
 
   virtualMouseEntity.x = virtualMouse.x;
   virtualMouseEntity.y = virtualMouse.y;
@@ -1239,10 +1267,41 @@ function polygonCenter(polygon) {
 // LOOP PRINCIPALE
 // ============================================================
 
+// Fuori dall'arena PvP lo schermo è oscurato, con un bordo che ne segna il limite
+function drawArenaFrame() {
+  if (!world.fixedSize) return;
+  const w = world.width * world.scale;
+  const h = world.height * world.scale;
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.55)";
+  ctx.beginPath();
+  ctx.rect(0, 0, canvas.width, canvas.height);
+  ctx.rect(world.offsetX, world.offsetY, w, h);
+  ctx.fill("evenodd");
+  ctx.strokeStyle = "rgba(0, 224, 255, 0.35)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(world.offsetX, world.offsetY, w, h);
+  ctx.restore();
+}
+
+// Da qui in poi si disegna in coordinate del mondo (ritagliate all'arena nel PvP)
+function enterWorldSpace() {
+  ctx.save();
+  ctx.translate(world.offsetX, world.offsetY);
+  ctx.scale(world.scale, world.scale);
+  if (world.fixedSize) {
+    ctx.beginPath();
+    ctx.rect(0, 0, world.width, world.height);
+    ctx.clip();
+  }
+}
+
 function animate() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
   applyCameraShake(ctx);
+  drawArenaFrame();
+  enterWorldSpace();
 
   updateStatusEffects(1 / 60);
   updateVirtualMouse();
@@ -1284,6 +1343,9 @@ function animate() {
   savePeriodically();
   regenMana();
 
+  drawMagicCircleDragTrail();
+  ctx.restore(); // fine coordinate del mondo
+
   let health;
   if (pvpManager && pvpManager.isActive()) {
     health = pvpManager.gameHooks.playerHealth;
@@ -1296,7 +1358,6 @@ function animate() {
 
   circleRotation += 0.003;
   drawManaSegments();
-  drawMagicCircleDragTrail();
   ctx.restore();
 
   requestAnimationFrame(animate);

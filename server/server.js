@@ -35,11 +35,16 @@ const MATCHMAKING_CONFIG = {
     LEVEL_TOLERANCE: 3,      // differenza massima di livello
     WINRATE_TOLERANCE: 0.3,  // differenza massima di win rate (30%)
     MATCH_TIMEOUT: 300000,   // 5 minuti per partita
-    REJOIN_GRACE_MS: 20000   // tempo per passare dalla pagina Arena alla pagina di gioco
+    REJOIN_GRACE_MS: 20000,  // tempo per passare dalla pagina Arena alla pagina di gioco
+    HEARTBEAT_MS: 25000,     // intervallo ping per scoprire le connessioni morte
+    DEFAULT_ARENA_SIZE: 800  // lato dell'arena se nessun client ha inviato le dimensioni dello schermo
 };
 
 wss.on('connection', (ws) => {
     console.log('🔌 Nuovo giocatore connesso');
+
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
 
     ws.on('message', (message) => {
         try {
@@ -151,6 +156,19 @@ function relayToOpponent(ws, message) {
 }
 
 function registerPlayer(ws, data) {
+    // Stesso utente già connesso da un'altra connessione (riconnessione dopo una caduta
+    // non rilevata, o seconda scheda): la vecchia sessione va rimossa, altrimenti resta
+    // un "fantasma" in coda che può essere accoppiato con un altro giocatore.
+    for (const [otherWs, other] of connectedPlayers) {
+        if (otherWs === ws || other.username !== data.username || other.status === 'in_game') continue;
+        const queueIndex = matchmakingQueue.findIndex(p => p.id === other.id);
+        if (queueIndex !== -1) matchmakingQueue.splice(queueIndex, 1);
+        connectedPlayers.delete(otherWs);
+        send(otherWs, { type: 'sessionReplaced' });
+        otherWs.close(); // se è davvero morta ci pensa l'heartbeat a chiuderla
+        console.log(`♻️ Sessione precedente di ${other.username} sostituita`);
+    }
+
     const playerData = {
         id: uuidv4(),
         username: data.username,
@@ -218,6 +236,9 @@ function joinMatchmaking(ws, data) {
     player.vittorie = data.vittorie ?? player.vittorie;
     player.partite = data.partite ?? player.partite;
     player.winRate = calculateWinRate(player.vittorie, player.partite);
+    // Lato massimo di un'arena quadrata che entra nello schermo del giocatore
+    const viewportSide = Math.floor(Math.min(Number(data.viewport?.width), Number(data.viewport?.height)));
+    player.viewportSide = viewportSide > 0 ? viewportSide : null;
 
     player.status = 'matchmaking';
     player.queueJoinTime = Date.now();
@@ -248,6 +269,9 @@ function leaveMatchmaking(ws) {
 }
 
 function attemptMatchmaking() {
+    // Mai accoppiare qualcuno la cui connessione non è più aperta
+    matchmakingQueue = matchmakingQueue.filter(p => p.ws && p.ws.readyState === 1);
+
     // Ricomincia dall'inizio della coda dopo ogni match creato
     let madeMatch = true;
     while (madeMatch && matchmakingQueue.length >= 2) {
@@ -288,11 +312,19 @@ function isValidMatch(player1, player2) {
     return true;
 }
 
+// Arena quadrata condivisa: il lato è il più grande che entra in entrambi gli schermi,
+// così nessuno dei due può raggiungere zone che l'altro non vede
+function computeArenaSize(player1, player2) {
+    const sides = [player1.viewportSide, player2.viewportSide].filter(Boolean);
+    return sides.length ? Math.min(...sides) : MATCHMAKING_CONFIG.DEFAULT_ARENA_SIZE;
+}
+
 function createMatch(player1, player2) {
     const matchId = uuidv4();
     const matchData = {
         id: matchId,
         players: [player1, player2],
+        arenaSize: computeArenaSize(player1, player2),
         startTime: Date.now(),
         player1Ready: false,
         player2Ready: false,
@@ -317,6 +349,7 @@ function createMatch(player1, player2) {
         rejoinToken: self.rejoinToken,
         opponent: { username: opponent.username, level: opponent.level, winRate: opponent.winRate },
         gameState: matchData.gameState,
+        arenaSize: matchData.arenaSize,
         playerRole
     });
 
@@ -536,6 +569,19 @@ setInterval(() => {
         }
     });
 }, 10000);
+
+// Heartbeat: chiude le connessioni che non rispondono al ping (cadute senza un "close"
+// pulito, frequenti dietro il proxy di Render). Il "close" poi passa da handlePlayerDisconnect.
+setInterval(() => {
+    wss.clients.forEach(ws => {
+        if (!ws.isAlive) {
+            ws.terminate();
+            return;
+        }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, MATCHMAKING_CONFIG.HEARTBEAT_MS);
 
 // Cuore del matchmaking, eseguito regolarmente
 setInterval(attemptMatchmaking, 3000);
