@@ -115,7 +115,7 @@ export function applyElementDefense(damage, stats, element) {
   return damage * (1 - def);
 }
 
-// Dati inviati al server per la partita: vita massima e difese
+// Dati inviati al server per la partita: vita massima, ATK e difese
 export function getCombatStats(stats) {
-  return { maxHp: stats.hp, elementDef: { ...stats.elementDef } };
+  return { maxHp: stats.hp, atk: stats.atk, elementDef: { ...stats.elementDef } };
 }

@@ -136,7 +136,7 @@ Proiezioni:
 **Stato implementazione** (regole in `client/js/game/spell-interactions.js`, solo con gli elementi attuali; si applicano a proiettili e aree spaziali):
 
 - acqua spegne fuoco; fuoco incendia aria (l'area passa a chi ha lanciato il fuoco); aria dissolve acqua
-- acqua + terra = rigoglio (12 s, rigenerazione mana ×3 per entrambi); fuoco + terra = magma (5 s, danno a entrambi; i proiettili lasciano una scia di 2.5 s)
+- acqua + terra = rigoglio (12 s, rigenerazione mana ×3 per entrambi); fuoco + terra = magma (5 s, danno a entrambi in base alla media degli ATK di chi ha lanciato fuoco e terra; i proiettili lasciano una scia di 2.5 s)
 - l'area di terra blocca i proiettili che non reagiscono con lei
 - extra: due proiettili avversari che si incrociano interagiscono tra loro; l'acqua raffredda il magma
 - l'esperienza si guadagna solo nelle partite PvP online (non in laboratorio né in training)

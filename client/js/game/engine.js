@@ -7,6 +7,8 @@ import { loadPlayerFromDB, savePlayerData, incrementPlayerCounters, getCurrentUs
 import { VirtualMouseEntity, globalCollisionSystem } from "./collision-system.js";
 import { Spark } from "./sparks.js";
 import { drawParticleShape } from "./particle-shapes.js";
+import { drawBrushStroke } from "./brush-stroke.js";
+import { SpatialAreaRenderer } from "./spatial-shader.js";
 import { PvPManager } from "./pvp-manager.js";
 import { applyCameraShake, triggerCameraShake, updateRedOverlay, drawRedOverlay } from './damage-effects.js';
 import { statusEffectManager, applyElementalHit, updateStatusEffects, createElementalDebuffParticles } from "./status-effects.js";
@@ -14,7 +16,7 @@ import { audioManager } from './audio-manager.js';
 import { isElement, getElementColor, parseColor, withAlpha, NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR, DEFAULT_SPAZIALE_COLOR } from './elements.js';
 import { getExpToNext, BURNOUT_FRAMES } from './progression.js';
 import {
-  computePlayerStats, getRecognitionThreshold, applyElementDefense, SPATIAL_DAMAGE_AREA_UNIT
+  computePlayerStats, getRecognitionThreshold, applyElementDefense, getAtkMultiplier, SPATIAL_DAMAGE_AREA_UNIT
 } from './player-stats.js';
 import {
   getInteraction, blocksProjectiles, VARIANT_COLORS,
@@ -59,6 +61,9 @@ function layoutWorld() {
   world.offsetY = (canvas.height - world.height * world.scale) / 2;
 }
 layoutWorld();
+
+// Riempimento delle aree spaziali con shader WebGL (se non disponibile: riempimento 2D semplice)
+const areaShader = new SpatialAreaRenderer(canvas);
 
 // === COSTANTI ===
 const PROJECTILE_SPEED = 16;
@@ -149,6 +154,7 @@ function initializeGameMode() {
     }
     pvpManager = new PvPManager(canvas, ctx, world);
     pvpManager.onAreaGranted = receiveGrantedArea;
+    pvpManager.shaderFillsAreas = areaShader.ok;
     console.log('🎮 Modalità PvP inizializzata');
   }
   registerPlayerStatusCallbacks();
@@ -645,17 +651,19 @@ function launchProjectile(start, end, { element = null, tipo = "proiettile" } = 
   const vy = (dy / dist) * PROJECTILE_SPEED;
   const color = element ? getElementColor(element) : NEUTRAL_COLOR;
 
-  // Effetto particelle di lancio
+  // Effetto particelle di lancio, orientate nella direzione del tiro
+  const launchAngle = Math.atan2(vy, vx);
   for (let i = 0; i < 80; i++) {
     activeMagicParticles.push({
       x: start.x + (Math.random() - 0.5) * 22,
       y: start.y + (Math.random() - 0.5) * 22,
       radius: Math.random() * 2.2 + 1.2,
       alpha: 0.18 + Math.random() * 0.18,
-      dx: (Math.random() - 0.5) * 1.5,
-      dy: (Math.random() - 0.5) * 1.5,
+      dx: (Math.random() - 0.5) * 1.5 + vx * 0.06,
+      dy: (Math.random() - 0.5) * 1.5 + vy * 0.06,
       color,
-      element
+      element,
+      angle: launchAngle
     });
   }
 
@@ -710,17 +718,19 @@ function updateProjectiles() {
     p.life--;
     p.alpha *= 0.97;
 
-    // Scia
+    // Scia: orientata lungo il moto del proiettile e trascinata leggermente indietro
+    const trailAngle = Math.atan2(p.vy, p.vx);
     for (let j = 0; j < 8; j++) {
       activeMagicParticles.push({
         x: p.x + (Math.random() - 0.5) * 18,
         y: p.y + (Math.random() - 0.5) * 18,
         radius: Math.random() * 4 + 2.5,
         alpha: 0.22 + Math.random() * 0.18,
-        dx: (Math.random() - 0.5) * 1.1,
-        dy: (Math.random() - 0.5) * 1.1,
+        dx: (Math.random() - 0.5) * 1.1 - p.vx * 0.08,
+        dy: (Math.random() - 0.5) * 1.1 - p.vy * 0.08,
         color: p.color || NEUTRAL_COLOR,
-        element: p.element
+        element: p.element,
+        angle: trailAngle
       });
     }
 
@@ -864,7 +874,7 @@ function drawSpazialePolygon() {
 
 function drawPermanentSpazialeAreas() {
   for (const area of permanentSpazialeAreas) {
-    drawPolygon(area.points, area.color);
+    drawPolygon(area.points, area.color, { fill: !areaShader.ok, stroke: false });
 
     if (Math.random() < 0.05) { // 5% per frame: scintilla lungo il bordo
       const edgeIndex = Math.floor(Math.random() * (area.points.length - 1));
@@ -885,7 +895,7 @@ function drawPermanentSpazialeAreas() {
   }
 }
 
-function drawPolygon(polygon, color) {
+function drawPolygon(polygon, color, { fill = true, stroke = true } = {}) {
   ctx.save();
   ctx.globalAlpha = 0.25;
   ctx.beginPath();
@@ -894,12 +904,16 @@ function drawPolygon(polygon, color) {
     ctx.lineTo(polygon[i].x, polygon[i].y);
   }
   ctx.closePath();
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  if (fill) {
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+  if (stroke) {
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -918,8 +932,18 @@ const MAGMA_TRAIL_RADIUS = 28;
 const PROJECTILE_COLLISION_RADIUS = 24;
 
 const interactedAreaPairs = new Set();
-let magmaTrail = [];          // { x, y, expiresAt }: pozze lasciate dai proiettili di magma
+let magmaTrail = [];          // { x, y, expiresAt, atk }: pozze lasciate dai proiettili di magma
 let lastMagmaDamage = 0;
+
+// ATK di chi ha lanciato una magia ('local' | 'opponent' | 'training')
+function getOwnerAtk(owner) {
+  return owner === 'opponent' && pvpManager ? pvpManager.opponentAtk : playerStats.atk;
+}
+
+// Il magma nasce da fuoco + terra: il suo danno usa la media degli ATK dei due caster
+function averageAtk(ownerA, ownerB) {
+  return (getOwnerAtk(ownerA) + getOwnerAtk(ownerB)) / 2;
+}
 
 function getOpponentAreas() {
   return pvpManager ? pvpManager.opponentSpazialeAreas : [];
@@ -956,6 +980,7 @@ function sendAreaUpdate(area, extra = {}) {
     variant: area.variant,
     expiresIn: area.expiresAt ? Math.max(0, area.expiresAt - Date.now()) : null,
     damagePerTick: getAreaDamagePerTick(area.points, area.element),
+    magmaAtk: area.magmaAtk,
     ...extra
   });
 }
@@ -969,6 +994,8 @@ function applyAreaEffect(area, effect, causerOwner) {
 
   if (effect === 'lush' || effect === 'magma') {
     area.variant = effect;
+    // Le aree modificate qui sono sempre nostre: l'altro caster è chi ha causato l'effetto
+    if (effect === 'magma') area.magmaAtk = averageAtk('local', causerOwner);
     area.color = VARIANT_COLORS[effect];
     area.expiresAt = Date.now() + (effect === 'lush' ? LUSH_DURATION_MS : MAGMA_DURATION_MS);
     sendAreaUpdate(area);
@@ -1007,7 +1034,8 @@ function receiveGrantedArea(data) {
   });
 }
 
-function applyProjectileEffect(projectile, effect) {
+// otherOwner: proprietario della magia con cui il proiettile ha interagito
+function applyProjectileEffect(projectile, effect, otherOwner) {
   if (effect === 'remove' || effect === 'lush') {
     projectile.hit = true; // sparisce al prossimo aggiornamento
   } else if (effect === 'ignite') {
@@ -1015,6 +1043,7 @@ function applyProjectileEffect(projectile, effect) {
     projectile.color = getElementColor('fuoco');
   } else if (effect === 'magma') {
     projectile.magma = true;
+    projectile.magmaAtk = averageAtk(projectile.owner, otherOwner);
   }
 }
 
@@ -1047,7 +1076,7 @@ function updateProjectileAreaInteractions() {
         { element: area.element, variant: area.variant }
       );
       if (result.a || result.b) {
-        applyProjectileEffect(p, result.a);
+        applyProjectileEffect(p, result.a, owner);
         if (owner === 'local' && result.b) applyAreaEffect(area, result.b, p.owner);
       } else if (blocksProjectiles(area)) {
         p.hit = true; // la terra blocca ciò che non reagisce con lei
@@ -1069,8 +1098,8 @@ function updateProjectileCollisions() {
 
       const result = getInteraction({ element: a.element }, { element: b.element });
       if (!result.a && !result.b) continue;
-      applyProjectileEffect(a, result.a);
-      applyProjectileEffect(b, result.b);
+      applyProjectileEffect(a, result.a, b.owner);
+      applyProjectileEffect(b, result.b, a.owner);
       if (a.hit) break;
     }
   }
@@ -1137,7 +1166,9 @@ function updateMagma() {
   for (const p of projectiles) {
     if (!p.magma || p.hit) continue;
     p.trailTick = (p.trailTick || 0) + 1;
-    if (p.trailTick % 3 === 0) magmaTrail.push({ x: p.x, y: p.y, expiresAt: now + MAGMA_TRAIL_MS });
+    if (p.trailTick % 3 === 0) {
+      magmaTrail.push({ x: p.x, y: p.y, expiresAt: now + MAGMA_TRAIL_MS, atk: p.magmaAtk || playerStats.atk });
+    }
   }
   magmaTrail = magmaTrail.filter(t => t.expiresAt > now);
 
@@ -1146,12 +1177,17 @@ function updateMagma() {
     .forEach(a => removeSpazialeAreaById(a.id));
 
   if (now - lastMagmaDamage < MAGMA_TICK_MS) return;
+  // Il danno scala con la media degli ATK dei due caster (fuoco e terra);
+  // con più fonti attive conta la più forte
   let damage = 0;
-  const magmaAreaActive = permanentSpazialeAreas.some(a => isVariantAlive(a, 'magma', now))
-    || getOpponentAreas().some(a => isVariantAlive(a, 'magma', now));
-  if (magmaAreaActive) damage += MAGMA_AREA_DAMAGE; // il magma in campo ferisce entrambi i caster
-  if (magmaTrail.some(t => Math.hypot(t.x - virtualMouse.x, t.y - virtualMouse.y) < MAGMA_TRAIL_RADIUS)) {
-    damage += MAGMA_TRAIL_DAMAGE;
+  const magmaAreas = [...permanentSpazialeAreas, ...getOpponentAreas()].filter(a => isVariantAlive(a, 'magma', now));
+  if (magmaAreas.length > 0) { // il magma in campo ferisce entrambi i caster
+    const atk = Math.max(...magmaAreas.map(a => a.magmaAtk || playerStats.atk));
+    damage += MAGMA_AREA_DAMAGE * getAtkMultiplier(atk);
+  }
+  const touchedTrail = magmaTrail.filter(t => Math.hypot(t.x - virtualMouse.x, t.y - virtualMouse.y) < MAGMA_TRAIL_RADIUS);
+  if (touchedTrail.length > 0) {
+    damage += MAGMA_TRAIL_DAMAGE * getAtkMultiplier(Math.max(...touchedTrail.map(t => t.atk)));
   }
   if (damage > 0) {
     lastMagmaDamage = now;
@@ -1323,16 +1359,9 @@ function drawMagicParticles() {
   }
 }
 
+// Tratto del simbolo in disegno: arrotondato e a spessore variabile (solo visivo)
 function drawPath() {
-  if (points.length < 2) return;
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(points[i].x, points[i].y);
-  }
-  ctx.strokeStyle = "rgba(180, 240, 255, 0.6)";
-  ctx.lineWidth = 3;
-  ctx.stroke();
+  drawBrushStroke(ctx, points, { color: "rgba(190, 245, 255, 0.85)", glow: "rgba(0, 234, 255, 0.8)", width: 5 });
 }
 
 
@@ -1626,12 +1655,40 @@ function enterWorldSpace() {
   }
 }
 
+const OPPONENT_AREA_TINT = '#ff4d4d';
+
+// Disegna le aree (nostre e dell'avversario) sul canvas WebGL con la stessa trasformazione del 2D
+function renderAreaShaders() {
+  if (!areaShader.ok) return;
+  const areas = permanentSpazialeAreas.map(area => ({
+    points: area.points,
+    element: area.element,
+    variant: area.variant,
+    tint: area.element === 'spaziale' ? DEFAULT_SPAZIALE_COLOR : getElementColor(area.element)
+  }));
+  for (const area of getOpponentAreas()) {
+    areas.push({
+      points: area.points,
+      element: area.element || 'spaziale',
+      variant: area.variant,
+      tint: OPPONENT_AREA_TINT,
+      tintMix: area.variant ? 0 : 0.45
+    });
+  }
+  const t = ctx.getTransform();
+  const clip = world.fixedSize
+    ? { x: t.e, y: t.f, width: world.width * t.a, height: world.height * t.d }
+    : null;
+  areaShader.render(areas, t, clip);
+}
+
 function animate() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
   applyCameraShake(ctx);
   drawArenaFrame();
   enterWorldSpace();
+  renderAreaShaders();
 
   updateStatusEffects(1 / 60);
   updateVirtualMouse();

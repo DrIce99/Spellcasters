@@ -6,6 +6,8 @@
 //   nessun elemento (mana puro, danni, scia del disegno) -> cerchio
 //
 // Una particella ha almeno { x, y, radius, dx, dy } e opzionalmente `element`.
+// `angle` (radianti) è la direzione della proiezione che l'ha generata: se presente,
+// la forma si orienta lungo il moto della magia invece che lungo il moto della particella.
 // I dati di forma calcolati una volta sola sono salvati sulla particella con prefisso "_".
 
 const TWO_PI = Math.PI * 2;
@@ -19,10 +21,12 @@ function drawCircle(ctx, p) {
 // Aria: segmento sottile lungo la direzione del moto (fermo -> direzione casuale fissa)
 function drawWindStreak(ctx, p) {
   const speed = Math.hypot(p.dx, p.dy);
-  if (p._angle === undefined || speed > 0.2) {
+  if (p.angle !== undefined) {
+    p._angle = p.angle;
+  } else if (p._angle === undefined || speed > 0.2) {
     p._angle = speed > 0.2 ? Math.atan2(p.dy, p.dx) : Math.random() * TWO_PI;
   }
-  const half = (p.radius * 3 + speed * 3) / 2;
+  const half = (p.radius * 3 + speed * 3 + (p.angle !== undefined ? p.radius * 2 : 0)) / 2;
   const cx = Math.cos(p._angle) * half;
   const cy = Math.sin(p._angle) * half;
   ctx.beginPath();
@@ -33,10 +37,13 @@ function drawWindStreak(ctx, p) {
   ctx.stroke();
 }
 
-// Fuoco: fuso affusolato (sottile alle punte, spesso al centro), inclinato dal vento laterale
+// Fuoco: fuso affusolato (sottile alle punte, spesso al centro).
+// Libero sale verso l'alto inclinato dal vento laterale; in una proiezione la punta resta indietro, come una scia.
 function drawFlame(ctx, p) {
-  const angle = -Math.PI / 2 + Math.max(-0.9, Math.min(0.9, p.dx * 0.6));
-  const half = p.radius * 1.9;
+  const angle = p.angle !== undefined
+    ? p.angle + Math.PI
+    : -Math.PI / 2 + Math.max(-0.9, Math.min(0.9, p.dx * 0.6));
+  const half = p.radius * (p.angle !== undefined ? 2.4 : 1.9);
   const width = p.radius * 0.85;
   const ux = Math.cos(angle), uy = Math.sin(angle);   // asse della fiamma
   const px = -uy, py = ux;                             // perpendicolare
@@ -61,9 +68,13 @@ function drawShard(ctx, p) {
     });
   }
   const size = p.radius * 1.2;
+  // In una proiezione la scheggia si allunga nella direzione di volo
+  const stretch = p.angle !== undefined ? 1.7 : 1;
+  const ca = Math.cos(p.angle || 0), sa = Math.sin(p.angle || 0);
   ctx.beginPath();
-  p._shard.forEach(([vx, vy], i) => {
-    const x = p.x + vx * size, y = p.y + vy * size;
+  p._shard.forEach(([sx, sy], i) => {
+    const vx = sx * stretch, vy = sy;
+    const x = p.x + (vx * ca - vy * sa) * size, y = p.y + (vx * sa + vy * ca) * size;
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });

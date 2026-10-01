@@ -39,6 +39,8 @@ const MATCHMAKING_CONFIG = {
     HEARTBEAT_MS: 25000,     // intervallo ping per scoprire le connessioni morte
     DEFAULT_ARENA_SIZE: 800, // lato dell'arena se nessun client ha inviato le dimensioni dello schermo
     DEFAULT_HP: 100,
+    DEFAULT_ATK: 10,
+    MAX_ATK: 1000,
     MAX_HP: 10000,
     MAX_ELEMENT_DEF: 0.9,
     MAX_HIT_DAMAGE: 1000
@@ -123,7 +125,8 @@ function handleMessage(ws, data) {
                 variant: data.variant,
                 expiresIn: data.expiresIn,
                 giveToReceiver: data.giveToReceiver,
-                damagePerTick: data.damagePerTick
+                damagePerTick: data.damagePerTick,
+                magmaAtk: data.magmaAtk
             });
             break;
         case 'spellRemoval':
@@ -242,6 +245,7 @@ function sanitizeCombatStats(raw) {
     }
     return {
         maxHp: clamp(raw?.maxHp, 1, MATCHMAKING_CONFIG.MAX_HP, MATCHMAKING_CONFIG.DEFAULT_HP),
+        atk: clamp(raw?.atk, 1, MATCHMAKING_CONFIG.MAX_ATK, MATCHMAKING_CONFIG.DEFAULT_ATK),
         elementDef
     };
 }
@@ -354,6 +358,7 @@ function buildPlayerGameState(player) {
         level: player.level,
         health: maxHealth,
         maxHealth,
+        atk: player.combatStats?.atk || MATCHMAKING_CONFIG.DEFAULT_ATK,
         elementDef: player.combatStats?.elementDef || {}
     };
 }

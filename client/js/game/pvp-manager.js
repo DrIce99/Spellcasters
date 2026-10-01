@@ -6,7 +6,8 @@ import { applyElementalHit, statusEffectManager, createElementalDebuffParticles 
 import { audioManager } from './audio-manager.js';
 import { getElementColor, getOpponentElementColor } from './elements.js';
 import { VARIANT_COLORS } from './spell-interactions.js';
-import { computePlayerStats, applyElementDefense, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT } from './player-stats.js';
+import { drawBrushStroke } from './brush-stroke.js';
+import { computePlayerStats, applyElementDefense, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, SKILLS } from './player-stats.js';
 import { WS_URL } from '../services/config.js';
 import { loadPlayerFromDB, savePlayerData, getCurrentUsername } from '../services/player-db.js';
 
@@ -51,6 +52,7 @@ export class PvPManager {
         this.activeSpatialIntervals = {};
         this.opponentCircleRotation = 0;
         this.onAreaGranted = null; // impostata da engine.js: l'avversario ci cede un'area
+        this.shaderFillsAreas = false; // true = il riempimento delle aree lo disegna lo shader WebGL
 
         this.lastUpdateSent = 0;
         this.updateInterval = 1000 / 60;
@@ -60,6 +62,7 @@ export class PvPManager {
         this.healthPersistenceKey = null;
         this.maxHealth = 100;
         this.opponentMaxHealth = 100;
+        this.opponentAtk = SKILLS.atk.base; // serve per il danno del magma (media degli ATK)
         this.playerStats = computePlayerStats({}); // sostituite da engine.js quando arriva il profilo
 
         // loading -> waiting_for_ready -> countdown -> active -> finished
@@ -107,6 +110,7 @@ export class PvPManager {
         this.maxHealth = gameState[this.playerRole]?.maxHealth || 100;
         this.opponentMaxHealth = gameState[opponentRole]?.maxHealth || 100;
         this.gameHooks.playerHealth = this.maxHealth;
+        this.opponentAtk = gameState[opponentRole]?.atk || SKILLS.atk.base;
         this.opponent.health = this.opponentMaxHealth;
 
         this.healthPersistenceKey = `match_health_${this.matchData.matchId}`;
@@ -528,6 +532,7 @@ export class PvPManager {
             existing.variant = data.variant || null;
             existing.expiresAt = data.expiresIn ? Date.now() + data.expiresIn : null;
             if (data.damagePerTick > 0) existing.damagePerTick = data.damagePerTick;
+            if (data.magmaAtk > 0) existing.magmaAtk = data.magmaAtk;
             return;
         }
 
@@ -537,13 +542,14 @@ export class PvPManager {
             element: data.element,
             variant: data.variant,
             expiresIn: data.expiresIn,
-            damagePerTick: data.damagePerTick
+            damagePerTick: data.damagePerTick,
+            magmaAtk: data.magmaAtk
         });
     }
 
     // Aggiunge un'area avversaria, con il danno periodico per chi resta dentro.
     // damagePerTick lo calcola chi lancia l'area (dipende dal suo ATK); se manca si usa il valore base.
-    registerOpponentArea({ id, points, element = null, variant = null, expiresIn = null, damagePerTick = null }) {
+    registerOpponentArea({ id, points, element = null, variant = null, expiresIn = null, damagePerTick = null, magmaAtk = null }) {
         if (this.activeSpatialIntervals[id]) return;
         this.opponentSpazialeAreas.push({
             id,
@@ -551,6 +557,7 @@ export class PvPManager {
             element,
             variant,
             expiresAt: expiresIn ? Date.now() + expiresIn : null,
+            magmaAtk,
             damagePerTick: damagePerTick > 0
                 ? damagePerTick
                 : BASE_DAMAGE.spaziale * (this.calculatePolygonArea(points) / SPATIAL_DAMAGE_AREA_UNIT)
@@ -649,7 +656,8 @@ export class PvPManager {
             variant: spellData.variant,
             expiresIn: spellData.expiresIn,
             giveToReceiver: spellData.giveToReceiver,
-            damagePerTick: spellData.damagePerTick
+            damagePerTick: spellData.damagePerTick,
+            magmaAtk: spellData.magmaAtk
         });
     }
 
@@ -805,13 +813,12 @@ export class PvPManager {
             }
             ctx.closePath();
             const variantColor = VARIANT_COLORS[area.variant];
-            ctx.strokeStyle = variantColor || 'rgba(255, 100, 100, 0.6)';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            ctx.globalAlpha = variantColor ? 0.25 : 1;
-            ctx.fillStyle = variantColor || 'rgba(255, 100, 100, 0.15)';
-            ctx.fill();
-            ctx.globalAlpha = 1;
+            if (!this.shaderFillsAreas) {
+                ctx.globalAlpha = variantColor ? 0.25 : 1;
+                ctx.fillStyle = variantColor || 'rgba(255, 100, 100, 0.15)';
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
         }
         ctx.restore();
     }
@@ -891,14 +898,7 @@ export class PvPManager {
         const pts = this.opponent.castingPoints;
         if (!pts || pts.length < 2) return;
 
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-        ctx.strokeStyle = "rgba(255, 100, 100, 0.6)";
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        ctx.restore();
+        drawBrushStroke(ctx, pts, { color: "rgba(255, 150, 150, 0.85)", glow: "rgba(255, 60, 60, 0.8)", width: 5 });
     }
 
     createOpponentSpellEffect(position) {
