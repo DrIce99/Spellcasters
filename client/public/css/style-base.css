@@ -1,4 +1,4 @@
-/* Reset, variabili, body, font, utility */
+/* Reset, variabili, body, font, componenti condivisi (pannelli, titoli, overlay) */
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400..900&display=swap');
 
 * {
@@ -13,48 +13,101 @@ html, body {
   overflow: hidden;
 }
 
-body {
-  background: var(--bg-color);
-  color: var(--text-color);
-  font-family: 'Segoe UI', sans-serif;
-  transition: background 0.7s cubic-bezier(.4,1.6,.4,1), color 0.7s cubic-bezier(.4,1.6,.4,1);
-}
+/* ============================================================
+   PALETTE
+   Giorno: viola come accento (leggibile su chiaro), ciano decorativo.
+   Notte: ciano come accento (leggibile su scuro), viola decorativo.
+   ============================================================ */
+:root,
+body.day {
+  --c-cyan: #00eaff;
+  --c-violet: #7f5cff;
 
-:root {
+  --bg: #f0f4ff;
+  --surface: #ffffff;
+  --surface-2: #e7ecfb;
+  --text: #222;
+  --text-muted: #4b5070;
+  --accent: #7f5cff;
+  --accent-text: #5b3fd9;      /* viola scurito: testo piccolo su chiaro */
+  --accent-2: #00eaff;
+  --accent-2-text: #007f8c;    /* ciano scurito: testo su chiaro */
+  --on-accent: #ffffff;
+  --line: rgba(127, 92, 255, 0.22);
+  --line-strong: rgba(127, 92, 255, 0.55);
+  --tint: rgba(127, 92, 255, 0.08);
+  --danger: #d42a2a;
+  --success: #1f8f4e;
+  --gold: #a67c00;
+  --silver: #5f6675;
+  --bronze: #a0522d;
+  --overlay: rgba(17, 20, 28, 0.88);
+
+  /* Piste di circuito sullo sfondo */
+  --circuit: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' fill='none' stroke='rgba(127,92,255,0.13)' stroke-width='1'%3E%3Cpath d='M0 40h40l20 20h40M130 40h30M80 0v10l10 10h30M80 160v-30l-10-10v-20M0 120h20l15-15M125 120h35'/%3E%3Ccircle cx='103' cy='60' r='3'/%3E%3Ccircle cx='123' cy='20' r='3'/%3E%3Ccircle cx='70' cy='87' r='3'/%3E%3Ccircle cx='37' cy='103' r='2.5'/%3E%3Ccircle cx='122' cy='120' r='3'/%3E%3Cpath d='M140 84l6 6-6 6-6-6z'/%3E%3C/svg%3E");
+
+  /* Nomi usati dal codice esistente */
+  --bg-color: var(--bg);
+  --text-color: var(--text);
+  --text-secondary-color: var(--text-muted);
+  --home-title-color: var(--accent);
   --mana-bar-color: #00eaff;
-  --button-inset: #fff;
-  --button-gradient: linear-gradient(90deg, #00eaff 0%, #7f5cff 100%);
-  --button-gradient-hover: linear-gradient(90deg, #7f5cff 0%, #00eaff 100%);
-  --button-shadow: 0 0 16px 0 #00eaff55, 0 2px 8px 0 #0002, inset 0 0 0 4px var(--button-inset);
-  --button-shadow-hover: 0 0 32px 0 #7f5cff99, 0 2px 16px 0 #0004;
-  --button-shadow-focus: 0 0 24px 0 #7f5cff99, 0 2px 16px 0 #0004, inset 0 0 0 2.5px #fff8;
-  --home-title-color: #7f5cff;
-  --logout-gradient: linear-gradient(90deg, #7f5cff 0%, #ff0000 100%);
-  --logout-gradient-hover: linear-gradient(90deg, #ff0000 0%, #7f5cff 100%);
 }
 
 body.night {
-  --button-inset: #000;
-  --button-gradient: linear-gradient(90deg, #23233a 0%, #00eaff 100%);
-  --button-gradient-hover: linear-gradient(90deg, #00eaff 0%, #23233a 100%);
-  --button-shadow: 0 0 16px 0 #00eaff99, 0 2px 8px 0 #0004, inset 0 0 0 4px var(--button-inset);
-  --button-shadow-hover: 0 0 32px 0 #00eaffcc, 0 2px 16px 0 #0006;
-  --button-shadow-focus: 0 0 24px 0 #00eaffcc, 0 2px 16px 0 #0006, inset 0 0 0 2.5px #fff8;
-  --home-title-color: #00eaff;
-  --logout-gradient: linear-gradient(90deg, #23233a 0%, #ff3c3c 100%);
-  --logout-gradient-hover: linear-gradient(90deg, #ff3c3c 0%, #23233a 100%);
+  --bg: #11141c;
+  --surface: #181c2a;
+  --surface-2: #23233a;
+  --text: #e0e7ff;
+  --text-muted: #9ca5c9;
+  --accent: #00eaff;
+  --accent-text: #00eaff;
+  --accent-2: #7f5cff;
+  --accent-2-text: #a58dff;
+  --on-accent: #0b0e15;
+  --line: rgba(0, 234, 255, 0.18);
+  --line-strong: rgba(0, 234, 255, 0.5);
+  --tint: rgba(0, 234, 255, 0.07);
+  --danger: #ff3c3c;
+  --success: #4ade80;
+  --gold: #ffd166;
+  --silver: #c0c7d6;
+  --bronze: #e0a070;
+  --overlay: rgba(11, 14, 21, 0.9);
+
+  --circuit: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' fill='none' stroke='rgba(0,234,255,0.07)' stroke-width='1'%3E%3Cpath d='M0 40h40l20 20h40M130 40h30M80 0v10l10 10h30M80 160v-30l-10-10v-20M0 120h20l15-15M125 120h35'/%3E%3Ccircle cx='103' cy='60' r='3'/%3E%3Ccircle cx='123' cy='20' r='3'/%3E%3Ccircle cx='70' cy='87' r='3'/%3E%3Ccircle cx='37' cy='103' r='2.5'/%3E%3Ccircle cx='122' cy='120' r='3'/%3E%3Cpath d='M140 84l6 6-6 6-6-6z'/%3E%3C/svg%3E");
 }
 
-body.day {
-  --button-inset: #fff;
-  --button-gradient: linear-gradient(90deg, #00eaff 0%, #7f5cff 100%);
-  --button-gradient-hover: linear-gradient(90deg, #7f5cff 0%, #00eaff 100%);
-  --button-shadow: 0 0 16px 0 #00eaff55, 0 2px 8px 0 #0002, inset 0 0 0 4px var(--button-inset);
-  --button-shadow-hover: 0 0 32px 0 #7f5cff99, 0 2px 16px 0 #0004;
-  --button-shadow-focus: 0 0 24px 0 #7f5cff99, 0 2px 16px 0 #0004, inset 0 0 0 2.5px #fff8;
-  --home-title-color: #7f5cff;
-  --logout-gradient: linear-gradient(90deg, #7f5cff 0%, #ff0000 100%);
-  --logout-gradient-hover: linear-gradient(90deg, #ff0000 0%, #7f5cff 100%);
+body {
+  background-color: var(--bg);
+  background-image: var(--circuit);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  line-height: 1.45;
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* Durante il gioco lo sfondo resta pulito: le magie devono leggersi bene */
+body:has(#spellCanvas) {
+  background-image: none;
+}
+
+h1, h2, h3 {
+  font-family: 'Cinzel', serif;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Scrollbar sottile e squadrata */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 .hidden {
@@ -65,7 +118,160 @@ body.day {
   opacity: 1;
 }
 
-/* Utility */
+/* ============================================================
+   PANNELLO: angoli tagliati (in alto a destra e in basso a sinistra)
+   con il taglio disegnato, e due "staffe" da HUD sugli altri angoli
+   ============================================================ */
+.panel,
+#matchmaking-status,
+#player-info,
+#player-info-card,
+.version-info,
+.modal-content,
+#login-form,
+#signup-form {
+  --cut: 14px;
+  --edge: var(--line-strong);
+  position: relative;
+  color: var(--text);
+  border: 1px solid var(--edge);
+  background:
+    linear-gradient(to bottom left, transparent calc(50% - 0.75px), var(--edge) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)) top right / var(--cut) var(--cut) no-repeat,
+    linear-gradient(to bottom left, transparent calc(50% - 0.75px), var(--edge) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)) bottom left / var(--cut) var(--cut) no-repeat,
+    var(--surface);
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+}
+
+.panel::before,
+#matchmaking-status::before,
+#player-info::before,
+#player-info-card::before,
+.version-info::before,
+.modal-content::before,
+#login-form::before,
+#signup-form::before,
+.panel::after,
+#matchmaking-status::after,
+#player-info::after,
+#player-info-card::after,
+.version-info::after,
+.modal-content::after,
+#login-form::after,
+#signup-form::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+
+.panel::before,
+#matchmaking-status::before,
+#player-info::before,
+#player-info-card::before,
+.version-info::before,
+.modal-content::before,
+#login-form::before,
+#signup-form::before {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid var(--accent);
+  border-left: 2px solid var(--accent);
+}
+
+.panel::after,
+#matchmaking-status::after,
+#player-info::after,
+#player-info-card::after,
+.version-info::after,
+.modal-content::after,
+#login-form::after,
+#signup-form::after {
+  right: -1px;
+  bottom: -1px;
+  border-right: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+}
+
+/* ============================================================
+   TITOLI DI SEZIONE: pista di circuito con pad ai due lati
+   ============================================================ */
+.section-title,
+#player-info h2,
+#player-info-card h2,
+.modal-content h2,
+#stats-panel h2,
+#leaderboard-panel h2,
+.version-info h2 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7em;
+  color: var(--accent-text);
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+.section-title::before,
+.section-title::after,
+#player-info h2::before,
+#player-info h2::after,
+#player-info-card h2::before,
+#player-info-card h2::after,
+.modal-content h2::before,
+.modal-content h2::after,
+#stats-panel h2::before,
+#stats-panel h2::after,
+#leaderboard-panel h2::before,
+#leaderboard-panel h2::after {
+  content: '';
+  flex: 1;
+  min-width: 24px;
+  max-width: 120px;
+  height: 7px;
+  background:
+    linear-gradient(var(--accent), var(--accent)) right center / 5px 5px no-repeat,
+    linear-gradient(90deg, transparent, var(--line-strong)) left center / calc(100% - 9px) 1px no-repeat;
+}
+
+.section-title::after,
+#player-info h2::after,
+#player-info-card h2::after,
+.modal-content h2::after,
+#stats-panel h2::after,
+#leaderboard-panel h2::after {
+  transform: scaleX(-1);
+}
+
+/* ============================================================
+   CAMPI DI TESTO E SLIDER
+   ============================================================ */
+input[type="text"],
+input[type="password"] {
+  font: inherit;
+  font-size: 1.05rem;
+  padding: 0.6em 0.8em;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: var(--surface-2);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+/* ============================================================
+   GIOCO
+   ============================================================ */
 #spellCanvas {
   display: block;
   width: 100vw;
@@ -98,7 +304,6 @@ body.day {
   color: #0ff;
   font-size: 16px;
   border: 1px solid #0ff;
-  border-radius: 6px;
   font-family: monospace;
   pointer-events: none;
   transition: opacity 0.3s;
@@ -116,18 +321,17 @@ body.day {
   mix-blend-mode: lighten;
 }
 
+/* Overlay di partita: sempre scuri, indipendentemente dal tema */
 .game-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.85);
-  color: white;
+  inset: 0;
+  background-color: var(--overlay);
+  color: #e0e7ff;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  gap: 12px;
   z-index: 1000;
   text-align: center;
   font-family: "Cinzel", serif;
@@ -138,20 +342,27 @@ body.day {
   opacity: 0;
 }
 
-/* Stili per l'overlay pre-partita */
+#ready-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
 #ready-container h2 {
-  font-size: 2.5em;
-  margin-bottom: 10px;
+  font-size: 2.4em;
+  color: #00eaff;
 }
 #ready-container p {
-  font-size: 1.2em;
-  margin-bottom: 20px;
+  font-size: 1.15em;
+  color: #c3cbea;
+  margin-bottom: 8px;
 }
-/* Stili per il countdown */
+
 #countdown-container h1 {
   font-size: 8em;
-  font-weight: bold;
+  font-weight: 700;
   font-family: "Cinzel", serif;
+  color: #00eaff;
   animation: pulse 1s infinite;
 }
 @keyframes pulse {
@@ -160,21 +371,23 @@ body.day {
   100% { transform: scale(1); }
 }
 
-/* Stili per l'overlay post-partita */
 #post-match-overlay h1 {
   font-size: 5em;
-  font-weight: bold;
+  font-weight: 700;
   font-family: "Cinzel", serif;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
   transform: scale(0.9);
   opacity: 0;
   animation: fadeIn 1s forwards;
 }
 #post-match-overlay h1.victory {
-  color: #4CAF50; /* Verde */
+  color: #4ade80;
 }
 #post-match-overlay h1.defeat {
-  color: #F44336; /* Rosso */
+  color: #ff3c3c;
+}
+#post-match-overlay p {
+  color: #c3cbea;
 }
 @keyframes fadeIn {
   to {
@@ -184,5 +397,13 @@ body.day {
 }
 
 #countdown-container.transparent-bg {
-  background-color: transparent !important; /* Rende lo sfondo del countdown trasparente */
+  background-color: transparent !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

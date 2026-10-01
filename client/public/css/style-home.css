@@ -1,43 +1,82 @@
-/* Home page layout, titoli, fog, container */
+/* Home: titolo, cerchio runico di sfondo, pulsanti, foschia */
 #home-container {
+  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 128px;
+  gap: 72px;
+  z-index: 1;
 }
+
+/* Cerchio runico-circuitale che ruota lentamente dietro al contenuto */
+#home-container::before {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: min(720px, 92vmin);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  background: var(--accent);
+  -webkit-mask: url('/img/rune-circle.svg') center / contain no-repeat;
+  mask: url('/img/rune-circle.svg') center / contain no-repeat;
+  opacity: 0.09;
+  pointer-events: none;
+  z-index: -1;
+  animation: rune-spin 240s linear infinite;
+}
+body.night #home-container::before {
+  opacity: 0.12;
+}
+
+@keyframes rune-spin {
+  to { rotate: 360deg; }
+}
+
 #home-container button {
   display: block;
   margin: 0;
-  width: 320px;
-  max-width: 90vw;
 }
 
 #home-buttons {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 32px;
-  margin-bottom: 32px;
+  align-items: center;
+  gap: 18px;
 }
 
 #home-bottom-buttons {
   display: flex;
   justify-content: center;
-  gap: 32px;
-  margin-top: 32px;
+  gap: 18px;
 }
 
 #home-title {
+  position: relative;
   font-family: "Cinzel", serif;
-  font-optical-sizing: auto;
-  font-weight: 400;
-  font-style: normal;
-  font-size: 3rem;
-  margin-bottom: 24px;
+  font-weight: 500;
+  font-size: clamp(2.4rem, 6vw, 3.6rem);
+  letter-spacing: 0.18em;
+  color: var(--accent-text);
+  text-align: center;
+  padding-bottom: 34px;
   transition: color 0.4s;
-  color: var(--home-title-color);
+}
+
+/* Fregio sotto il titolo: piste di circuito con un rombo runico al centro */
+#home-title::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: min(360px, 80vw);
+  height: 24px;
+  translate: -50% 0;
+  background: var(--accent);
+  -webkit-mask: url('/img/title-ornament.svg') center / contain no-repeat;
+  mask: url('/img/title-ornament.svg') center / contain no-repeat;
 }
 
 #home-fog-canvas {
@@ -50,25 +89,36 @@
   pointer-events: none;
   z-index: 0;
   display: block;
-  background: linear-gradient(to top, rgba(0, 225, 255, 0.158), rgba(0, 0, 0, 0.0));
+  background: linear-gradient(to top, color-mix(in srgb, var(--accent-2) 14%, transparent), transparent);
 }
 
+/* Versione: semplice link testuale in basso a destra */
 #version {
   position: fixed;
-  bottom: 8px;
-  right: 16px;
-  font-size: 0.75rem;
-  text-align: end;
-  color: var(--text-secondary-color);
+  bottom: 12px;
+  right: 18px;
+  z-index: 2;
+  padding: 4px 2px;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
   border: none;
   background: none;
-  box-shadow: none;
+  clip-path: none;
 }
-
 #version:hover {
+  color: var(--accent-text);
   background: none;
 }
+#version::after {
+  height: 1px;
+}
+#version:hover::after {
+  width: 100%;
+}
 
-body.day {
-  color: var(--text-color)
+@media (max-height: 700px) {
+  #home-container { gap: 40px; }
 }

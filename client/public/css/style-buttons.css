@@ -1,83 +1,167 @@
-/* Pulsanti generici e home */
+/* Pulsanti: rettangoli con due angoli tagliati, bordo sottile, traccia luminosa al passaggio */
 button {
-  font-family: 'Cinzel', serif;
-  font-size: 1.5rem;
-  padding: 0.8em 2.5em;
-  border: 2px solid rgba(127, 92, 255, 0.45);
-  border-radius: 0.75em;
-  background: var(--button-gradient);
-  color: #fff;
-  letter-spacing: 0.08em;
-  box-shadow: var(--button-shadow);
-  cursor: pointer;
-  transition: background 0.3s, box-shadow 0.3s, transform 0.15s;
-  outline: none;
+  --cut: 10px;
+  --edge: var(--line-strong);
+  --fill: var(--surface);
   position: relative;
-  overflow: hidden;
-  z-index: 1;
+  font-family: 'Cinzel', serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  padding: 0.85em 2em;
+  color: var(--text);
+  border: 1px solid var(--edge);
+  border-radius: 0;
+  background:
+    linear-gradient(to bottom right, transparent calc(50% - 0.75px), var(--edge) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)) top left / var(--cut) var(--cut) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - 0.75px), var(--edge) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)) bottom right / var(--cut) var(--cut) no-repeat,
+    var(--fill);
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  cursor: pointer;
+  outline: none;
+  transition: color 0.2s, background-color 0.2s, border-color 0.2s, transform 0.15s;
 }
-button:before {
+
+/* Traccia che si accende lungo il bordo inferiore */
+button::after {
   content: '';
   position: absolute;
-  left: var(--mouse-x, 50%);
-  top: var(--mouse-y, 50%);
+  left: 0;
+  bottom: 0;
   width: 0;
-  height: 0;
-  background: radial-gradient(circle, #fff8 0%, #00eaff00 80%);
-  transform: translate(-50%, -50%);
-  transition: width 0.4s, height 0.4s, left 0.1s, top 0.1s;
-  z-index: 0;
+  height: 2px;
+  background: var(--accent);
+  transition: width 0.3s ease;
   pointer-events: none;
 }
-button:hover:before {
-  width: 220%;
-  height: 400%;
-}
+
 button:hover {
-  background: var(--button-gradient-hover);
-  box-shadow: var(--button-shadow-hover);
-  transform: scale(1.04);
+  --edge: var(--accent);
+  --fill: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--accent-text);
+}
+button:hover::after {
+  width: calc(100% - var(--cut));
 }
 button:active {
-  transform: scale(0.98);
+  transform: translateY(1px);
 }
-button span, button svg {
-  position: relative;
-  z-index: 2;
+button:focus-visible {
+  --edge: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
-button:focus {
-  outline: none;
-  box-shadow: var(--button-shadow-focus);
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button:disabled:hover {
+  --edge: var(--line-strong);
+  --fill: var(--surface);
+  color: var(--text);
+}
+button:disabled::after {
+  display: none;
+}
+
+/* Azione principale: pieno nel colore d'accento */
+.btn-primary,
+button[type="submit"],
+#matchmaking-btn,
+#ready-btn {
+  --edge: var(--accent);
+  --fill: var(--accent);
+  color: var(--on-accent);
+}
+.btn-primary:hover,
+button[type="submit"]:hover,
+#matchmaking-btn:hover,
+#ready-btn:hover {
+  --fill: color-mix(in srgb, var(--accent) 82%, var(--text));
+  color: var(--on-accent);
+}
+.btn-primary::after,
+button[type="submit"]::after,
+#matchmaking-btn::after,
+#ready-btn::after {
+  background: var(--on-accent);
+  opacity: 0.6;
+}
+#matchmaking-btn:disabled,
+#ready-btn:disabled {
+  --fill: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Logout: tono di pericolo */
+#logout-btn {
+  --edge: color-mix(in srgb, var(--danger) 60%, transparent);
+  color: var(--danger);
+}
+#logout-btn:hover {
+  --edge: var(--danger);
+  --fill: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  color: var(--danger);
+}
+#logout-btn::after {
+  background: var(--danger);
 }
 
 .home-btn-long {
-  min-width: 180px;
-  width: 420px;
-  margin: 0 18px 0 18px;
-  font-size: 1.18em;
+  width: 340px;
+  max-width: 90vw;
+  font-size: 1.15rem;
 }
 
 .home-btn-bottom {
-  min-width: 140px;
-  width: 170px;
-  font-size: 1.08em;
+  min-width: 160px;
+  font-size: 0.95rem;
+  padding: 0.75em 1.4em;
 }
 
 #home-btn {
-  width: 100%;
-  max-width: 100px;
-  font-size: 1.2rem;
-  padding: 0.5em 0em;
-  margin: 15px;
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 100;
+  padding: 0.6em 1.3em;
+  font-size: 0.9rem;
 }
 
 .btn-permanent {
   position: fixed;
 }
 
-#logout-btn {
-  background: var(--logout-gradient) !important;
+/* Linguetta laterale verticale (Arena ↔ Classifica, Info ↔ Statistiche) */
+.slide-btn {
+  --cut: 12px;
+  position: fixed;
+  z-index: 100;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 200px;
+  padding: 10px 4px;
+  writing-mode: vertical-lr;
+  font-size: 0.95rem;
+  border-right: none;
+  color: var(--accent-text);
 }
-#logout-btn:hover {
-  background: var(--logout-gradient-hover) !important;
+.slide-btn:hover,
+.slide-btn:active {
+  transform: translateY(-50%);
+}
+.slide-btn::after {
+  left: auto;
+  right: 0;
+  top: 0;
+  bottom: auto;
+  width: 2px;
+  height: 0;
+  transition: height 0.3s ease;
+}
+.slide-btn:hover::after {
+  width: 2px;
+  height: 100%;
 }

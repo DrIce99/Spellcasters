@@ -1,91 +1,139 @@
-body {
-    overflow: auto;
+/* Patch notes: timeline verticale di schede-versione */
+html, body {
+  overflow: auto;
+  height: auto;
+}
+
+#home-container {
+  min-height: 100vh;
+  justify-content: flex-start;
+  gap: 18px;
+  padding: 72px 20px 64px;
+}
+
+#home-title {
+  font-size: clamp(2rem, 5vw, 2.8rem);
 }
 
 .version-title {
-font-family: "Cinzel", serif;
-    color: var(--home-title-color);
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  margin-bottom: 18px;
+}
+
+/* La colonna delle versioni è una pista di circuito con un pad per ogni versione */
+#changelog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: min(620px, 92vw);
+  padding-left: 34px;
+}
+#changelog::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: linear-gradient(var(--line-strong), var(--line) 80%, transparent);
 }
 
 .version-info {
-    background: rgba(255, 255, 255, 0.277);
-    border: 1px solid #bfcfff;
-    border-radius: 10px;
-    padding: 18px 30px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-    width: min(560px, 90vw);
-    box-sizing: border-box;
-    text-align: center;
-    margin-bottom: 20px;
+  padding: 20px 26px 22px;
+  text-align: left;
+}
+/* Pad sulla pista, uno per versione */
+.version-entry {
+  position: relative;
+}
+.version-entry::before {
+  content: '';
+  position: absolute;
+  left: -30px;
+  top: 24px;
+  width: 9px;
+  height: 9px;
+  background: var(--bg);
+  border: 2px solid var(--accent);
+  rotate: 45deg;
+}
+.version-entry.current::before {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+}
+
+.version-date {
+  position: relative;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
 }
 
 .version-info h2 {
-    margin: 0 0 12px;
-    font-size: 1.25em;
-    color: var(--home-title-color, #4f8cff);
-}
-
-.version-info p {
-    margin: 7px 0;
-    color: var(--text-color);
+  justify-content: flex-start;
+  font-size: 1.2rem;
+  color: var(--accent-text);
+  margin-bottom: 4px;
+  text-align: left;
 }
 
 .version-info h3 {
-    margin: 10px 0 0;
-    color: aqua;
-}
-
-.special {
-    background: linear-gradient(to right,
-            rgb(255, 0, 255),
-            rgb(0, 255, 255),
-            rgb(0, 255, 0),
-            rgb(255, 255, 0),
-            rgb(255, 0, 0),
-            rgb(255, 0, 255));
-    background-clip: text;
-    color: transparent;
-    background-size: 200% auto;
-    animation: gradientAnimation 3s linear infinite;
-}
-
-@keyframes gradientAnimation {
-    0% {
-        background-position: 200% 50%;
-    }
-
-    100% {
-        background-position: 0% 50%;
-    }
-}
-
-::-webkit-scrollbar {
-    width: 2px;
-}
-
-::-webkit-scrollbar-thumb {
-    background: var(--home-title-color);
-}
-
-.credits {
-    bottom: 8px;
-    right: 16px;
-    text-align: end;
-    color: var(--home-title-color);
-    position: fixed;
-}
-.version-date {
-    font-size: 0.9em;
-    opacity: 0.75;
+  display: inline-block;
+  margin: 14px 0 6px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+  border: 1px solid var(--line-strong);
 }
 
 .version-changes {
-    margin: 6px 0 4px;
-    padding-left: 20px;
-    text-align: left;
-    color: var(--text-color);
+  list-style: none;
+  color: var(--text);
+}
+.version-changes li {
+  position: relative;
+  padding-left: 18px;
+  margin: 5px 0;
+}
+.version-changes li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.6em;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--accent);
 }
 
-.version-changes li {
-    margin: 4px 0;
+/* Versione corrente: titolo con sfumatura animata della palette */
+.special {
+  background: linear-gradient(to right, var(--c-violet), var(--c-cyan), var(--c-violet));
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent !important;
+  background-size: 200% auto;
+  animation: gradientAnimation 4s linear infinite;
+}
+
+@keyframes gradientAnimation {
+  0% { background-position: 200% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.credits {
+  position: fixed;
+  bottom: 12px;
+  right: 18px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }

@@ -1,311 +1,270 @@
-body, html {
-  height: 100%;
-  margin: 0;
-  padding: 0;
-}
-
+/* Arena: lobby, matchmaking, classifica (due viste affiancate) */
 body {
-  background: var(--bg-color);
-  color: var(--text-color);
-  font-family: "Cinzel", serif;
-  margin: 0;
-  padding: 0;
-  min-height: 100vh;
-  transition: background 0.7s cubic-bezier(.4,1.6,.4,1), color 0.7s cubic-bezier(.4,1.6,.4,1);
+  font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
-/* Modalità giorno */
-body.day {
-  --bg-color: #f0f4ff;
-  --text-color: #222;
-}
-
-/* Modalità notte */
-body.night {
-  --bg-color: #181c2a;
-  --text-color: #e0e7ff;
-}
-
-#arena-container {
-  min-height: 100vh;
-  min-width: 100vw;
+/* Contenitore che scorre lateralmente tra Arena e Classifica */
+#main-view-wrapper {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center; /* centra verticalmente */
+  width: 200vw;
+  height: 100vh;
+  transition: transform 0.5s ease-in-out;
+  position: fixed;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+}
+body.show-leaderboard #main-view-wrapper {
+  transform: translateX(-100vw);
 }
 
-#arena-title {
-  font-size: 2.2em;
-  color: var(--home-title-color, #4f8cff);
-  margin-bottom: 10px;
-  letter-spacing: 1px;
-  text-shadow: 0 2px 8px #bfcfff60;
+#arena-container,
+#leaderboard-panel {
+  width: 100vw;
+  height: 100vh;
+  flex-shrink: 0;
+  overflow-y: auto;
+  color: var(--text);
 }
 
-#matchmaking-status {
-  font-size: 1.3em;
-  color: var(--text-color);
-  margin-bottom: 25px;
-  background: rgba(255, 255, 255, 0.277);
-  border-radius: 8px;
-  padding: 15px 30px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.07);
-  /* Centra il suo contenuto */
+/* ============================================================
+   LOBBY
+   ============================================================ */
+#arena-container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-
+  gap: 18px;
+  padding: 80px 24px 40px;
 }
 
-#player-info {
-  background: rgba(255, 255, 255, 0.277);
-  border: 1px solid #bfcfff;
-  border-radius: 10px;
-  padding: 18px 30px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-  width: 320px;
+#arena-container > h1#arena-title {
+  font-size: clamp(1.8rem, 4vw, 2.4rem);
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  color: var(--accent-text);
   text-align: center;
-  margin-bottom: 20px;
+  margin-bottom: 6px;
 }
 
+#matchmaking-status,
+#player-info {
+  width: min(440px, 92vw);
+  padding: 22px 28px;
+}
+
+#matchmaking-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+#status-message {
+  font-size: 1rem;
+  color: var(--text);
+  min-height: 1.45em;
+}
+#status-message::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 10px;
+  vertical-align: middle;
+  background: var(--accent);
+  rotate: 45deg;
+}
+#matchmaking-btn {
+  min-width: 240px;
+}
+
+/* Scheda giocatore: righe etichetta / valore */
 #player-info h2 {
-  margin: 0 0 12px;
-  font-size: 1.25em;
-  color: var(--home-title-color, #4f8cff);
+  font-size: 1.05rem;
+  margin-bottom: 14px;
+}
+#player-info p {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--line);
+  color: var(--text-muted);
+}
+#player-info p span {
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+#player-stats {
+  margin-top: 14px;
+}
+#player-stats h3 {
+  font-size: 0.85rem;
+  letter-spacing: 0.14em;
+  color: var(--accent-2-text);
+  margin-bottom: 4px;
 }
 
-#player-info p {
-  margin: 7px 0;
-  color: var(--text-color);
+/* Contatori online / in coda */
+#online-status {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+#online-status p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-align: left !important;
+}
+#online-players-count,
+#ready-players-count {
+  font-weight: 700;
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
 }
 
 #arena-actions {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
 }
-#training-btn,
-#matchmaking-btn {
-  align-self: center;
-}
-
-.main-btn, #start-game, #cancel-matchmaking {
-  margin-top: 10px;
-  padding: 12px 28px;
-  font-size: 1.1em;
-  background: var(--button-gradient, linear-gradient(90deg, #4f8cff 0%, #1e40af 100%));
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  box-shadow: var(--button-shadow, 0 2px 8px #4f8cff40);
-  transition: background 0.2s, transform 0.2s;
+#training-btn {
+  min-width: 200px;
 }
 
-.main-btn:hover, #start-game:hover, #cancel-matchmaking:hover {
-  background: var(--button-gradient-hover, linear-gradient(90deg, #1e40af 0%, #4f8cff 100%));
-  transform: translateY(-2px) scale(1.04);
-}
-
-#online-players-count {
-  font-weight: bold;
-  color: #2563eb;
-  font-size: 1.2em;
-  margin-left: 5px;
-  padding: 2px 8px;
-  background: #e0e7ff;
-  border-radius: 6px;
-  box-shadow: 0 1px 4px #4f8cff20;
-}
-
-body.night #online-players-count {
-  color: #00eaff;
-  background: #23233a;
-}
-
-#arena-animation {
-  width: 100%;
-  height: 400px;
-  background: url('path/to/arena-background.jpg') no-repeat center center;
-  background-size: cover;
-  border-radius: 8px;
-  margin-top: 20px;
-}
-
-#home-btn {
-  position: fixed;
-  top: 24px;
-  left: 24px;
-  z-index: 100;
-  padding: 10px 22px;
-  font-size: 1em;
-}
-
-/* Container principale che abilita lo scorrimento laterale */
-#main-view-wrapper {
-  display: flex; 
-  width: 200vw; /* Due viste affiancate */
-  height: 100vh;
-  transition: transform 0.5s ease-in-out; /* Animazione fluida */
-  position: fixed;
-  top: 0;
-  left: 0;
-  overflow: hidden;
-}
-
-/* Stato spostato: mostra la classifica */
-body.show-leaderboard #main-view-wrapper {
-  /* Sposta l'intero wrapper di 100vw (una schermata) a sinistra per mostrare la seconda vista */
-  transform: translateX(-100vw); 
-}
-
-/* Le due viste devono occupare esattamente metà dello schermo */
-#arena-container, 
-#leaderboard-panel {
-    width: 100vw; /* Ora occupa tutto lo schermo */
-    min-height: 100vh;
-    padding: 100px;
-    box-sizing: border-box;
-    /* Aggiungi uno sfondo specifico per la classifica */
-    /* background-color: var(--background-color, #1a1a1a);  */
-    color: var(--text-color, #ffffff);
-}
-
-#leaderboard-panel {
+/* Stato della connessione: LED + testo */
+.connection-indicator {
   display: flex;
-  flex-direction: column;
-  align-items: center; /* Centra il contenuto orizzontalmente */
-  justify-content: flex-start;
-  overflow-y: auto;
-  width: 100vw;
-  padding: 20px 40px;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.connection-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  background: var(--text-muted);
+}
+.connection-indicator.connected::before {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success);
+}
+.connection-indicator.disconnected::before {
+  background: var(--danger);
 }
 
-/* Stili per i pulsanti di slide */
-.slide-btn {
-  position: fixed;
-  z-index: 100; /* Assicurati che sia sopra tutto */
-  /* centra verticalmente */
-  top: 50%;
-  transform: translateY(-50%);
-  width: 40px;
-  height: 220px;
-  border: none;
-  cursor: pointer;
-  color: white;
-  font-weight: bold;
-  /* Rendi il testo verticale ruotando l'intero pulsante */
-  writing-mode: vertical-lr; 
-  text-orientation: mixed;
-  padding: 10px 5px;
-  border-radius: 5px 5px 0 0;
-  /* transform: translateY(-50%); */
-  transition: background 0.2s ease;
-}
-
-.slide-btn:hover {
-  transform: translateY(-50%);
-}
-
-/* Pulsante a destra per aprire */
-.right-btn {
-  right: 0; 
-  border-radius: 0 0 5px 5px;
-}
-
-/* Pulsante a sinistra per chiudere */
-.left-btn {
-  right: 0;
-  border-radius: 5px 5px 0 0;
-}
-
-/* Visibilità dei pulsanti */
-body.show-leaderboard #open-leaderboard-btn {
-  display: none;
-}
+/* Linguette: visibili una alla volta */
+body.show-leaderboard #open-leaderboard-btn,
 body:not(.show-leaderboard) #close-leaderboard-btn {
   display: none;
 }
 
-/* Stili per la lista della classifica */
+/* ============================================================
+   CLASSIFICA
+   ============================================================ */
+#leaderboard-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 72px 64px 48px 24px;
+}
+#leaderboard-panel h2 {
+  font-size: 1.6rem;
+  width: min(820px, 100%);
+}
+#leaderboard-panel > p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+#leaderboard-list {
+  width: min(820px, 100%);
+  margin-top: 24px;
+}
+#leaderboard-list > p {
+  text-align: center;
+  color: var(--text-muted);
+}
+
 .leaderboard-list {
   list-style: none;
-  padding: 0;
-  margin-top: 150px;
-  width: 60vw; /* Occupa l'80% della larghezza centrata */
-  max-width: none;
-  text-align: center;
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
 }
-
 .leaderboard-list li {
   display: flex;
-  justify-content: space-between;
-  padding: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 1.1em;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
 }
-
+.leaderboard-list li:last-child {
+  border-bottom: none;
+}
+.leaderboard-list li:nth-child(even):not(.header) {
+  background: var(--tint);
+}
 .leaderboard-list li.header {
-  color: var(--text-color);
-  font-weight: bold;
-  border-bottom: 2px solid var(--home-title-color, #4f8cff);
-  padding-bottom: 15px;
-  text-transform: uppercase;
-}
-
-/* Stili per le medaglie */
-.leaderboard-list li.gold-rank {
-  color: gold;
-}
-
-.leaderboard-list li.silver-rank {
-  color: silver;
-}
-
-.leaderboard-list li.bronze-rank {
-  color: #cd7f32; 
-}
-
-/* Assicurati che il rank abbia il colore giusto anche nei primi 3 */
-.leaderboard-list li:is(.gold-rank, .silver-rank, .bronze-rank) .rank {
-  color: inherit; /* Usa il colore del genitore (gold, silver, bronze) */
+  font-family: 'Cinzel', serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-strong);
 }
 
 .leaderboard-list li .rank {
-  font-weight: bold;
   width: 10%;
-  text-align: left;
-  padding-left: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
 }
-
 .leaderboard-list li .name {
   width: 35%;
-  text-align: left;
+  font-weight: 600;
 }
-
-.leaderboard-list li .winrate {
-  width: 25%; /* Spazio per Punti */
-  font-weight: bold;
-  text-align: center; /* Centra il numero */
-}
-
-.leaderboard-list li .wins {
-  width: 20%; /* Spazio per Vittorie */
-  font-weight: bold;
-  text-align: center; /* Centra il numero */
-}
-
+.leaderboard-list li .winrate,
+.leaderboard-list li .wins,
 .leaderboard-list li .matches {
-  width: 20%; /* Spazio per Partite */
-  font-weight: bold;
-  text-align: center; /* Centra il numero */
+  text-align: center;
+  font-weight: 700;
+}
+.leaderboard-list li .winrate { width: 25%; color: var(--accent-text); }
+.leaderboard-list li .wins { width: 15%; }
+.leaderboard-list li .matches { width: 15%; }
+.leaderboard-list li.header span { color: inherit; }
+
+/* Podio */
+.leaderboard-list li.gold-rank .rank { color: var(--gold); }
+.leaderboard-list li.silver-rank .rank { color: var(--silver); }
+.leaderboard-list li.bronze-rank .rank { color: var(--bronze); }
+.leaderboard-list li:is(.gold-rank, .silver-rank, .bronze-rank) .rank::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+  background: currentColor;
+  rotate: 45deg;
 }
 
+/* Riga del giocatore corrente */
 .leaderboard-list li.my-rank {
-  background: rgba(var(--main-color-rgb, 0, 123, 255), 0.2); 
-  border: 1px solid var(--main-color, #4f8cff);
-  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--accent);
 }

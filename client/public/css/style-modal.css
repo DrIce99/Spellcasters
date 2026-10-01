@@ -1,8 +1,9 @@
 /* Modali, impostazioni, keybindings, slider */
 .modal {
   position: fixed;
-  left: 0; top: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.45);
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -10,99 +11,114 @@
   transition: opacity 0.3s;
 }
 .modal.hidden { display: none; }
+
 .modal-content {
-  background: var(--bg-color, #23233a);
-  color: var(--text-color, #fff);
-  border-radius: 18px;
-  box-shadow: 0 8px 32px #000a;
-  padding: 32px 36px 24px 36px;
+  --cut: 18px;
+  padding: 32px 36px 28px;
   min-width: 320px;
-  min-height: 180px;
   text-align: center;
-  position: relative;
 }
+
 .modal-content.settings-large {
-  min-width: 540px;
-  min-height: 340px;
-  font-size: 1.22em;
-  font-family: 'Cinzel';
-  padding: 56px 64px 40px 64px;
+  width: min(560px, 94vw);
+  max-height: 92vh;
+  overflow-y: auto;
+  padding: 36px 40px 32px;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 28px;
+  align-items: stretch;
+  gap: 22px;
   text-align: left;
+  font-size: 1rem;
 }
 .modal-content.settings-large h2 {
-  align-self: center;
-  margin-bottom: 10px;
+  font-size: 1.5rem;
+  margin-bottom: 4px;
 }
-.modal-content.settings-large label {
-  width: 100%;
-  display: flex;
-  gap: 16px;
-  font-size: 1.15em;
-  justify-content: space-between;
-  margin-bottom: 0;
+.modal-content.settings-large > label {
+  font-family: 'Cinzel', serif;
+  font-weight: 600;
+  font-size: 0.9rem !important;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
 }
+
 .settings-sliders {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  margin-right: 10px;
+  gap: 14px;
   width: 100%;
 }
 .settings-sliders label {
-  justify-content: space-between;
-  text-align: left;
+  display: grid;
+  grid-template-columns: 1fr minmax(120px, 200px) 3.5em;
+  align-items: center;
+  gap: 14px;
+  font-weight: 600;
 }
-.settings-sliders label > span,
-.settings-sliders label > input[type="range"] {
-  margin-left: 0;
+.settings-sliders input[type="range"] {
+  width: 100%;
 }
-.settings-sliders label > input[type="range"] {
-  margin-left: 32px;
+#particle-count-value,
+#audio-volume-value {
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-text);
 }
-#particle-count { width: 120px; text-align: right;}
-#particle-count-value { font-weight: bold; margin-left: 8px; text-align: right; }
-#close-settings { margin-top: 18px; align-self: center; }
+
+#theme-toggle-container {
+  flex-direction: row !important;
+  flex-wrap: wrap;
+  gap: 10px !important;
+  margin-top: 0 !important;
+}
+#theme-toggle-container button {
+  margin: 0 !important;
+  flex: 1;
+  font-size: 0.9rem;
+  padding: 0.7em 1em;
+}
+
+#close-settings {
+  align-self: center;
+  margin-top: 6px !important;
+  min-width: 160px;
+}
 
 .keybindings-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin: 18px 0 0 0;
-  align-items: flex-start;
+  gap: 8px;
   width: 100%;
 }
 .keybinding-row {
   display: flex;
   align-items: center;
-  gap: 18px;
-  font-size: 1.08em;
-  justify-content: flex-end;
-  width: 100%;
+  gap: 14px;
 }
+/* Tasto disegnato come un piccolo componente squadrato */
 .keybinding-row .key {
-  margin-left: auto;
-  margin-right: 8px;
-  background: #222a;
-  color: #fff;
-  border-radius: 6px;
-  padding: 2px 12px;
-  font-weight: bold;
-  font-family: 'Cinzel';
-  font-size: 1.08em;
-  margin-right: 8px;
-  box-shadow: 0 1px 4px #0003;
+  min-width: 4.5em;
+  padding: 3px 10px;
+  text-align: center;
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--accent-text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 3px;
+  line-height: 1.5;
 }
 .keybinding-row span:last-child {
   flex: 1;
-  text-align: right;
+  color: var(--text);
 }
 
-/* Login form (solo se non già migrato) */
+/* Login */
 #login-container {
   min-height: 100vh;
   display: flex;
@@ -110,22 +126,11 @@
   align-items: center;
   justify-content: center;
   gap: 32px;
-  transition: background 0.4s;
-}
-body.night #login-container {
-  background: rgba(30,30,40,0.95);
-}
-body.day #login-container {
-  background: rgba(255,255,255,0.92);
 }
 .login-label {
   font-family: 'Cinzel', serif;
-  font-size: 1rem;
-  transition: color 0.4s;
-}
-body.night .login-label {
-  color: #00eaff;
-}
-body.day .login-label {
-  color: #7f5cff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
 }

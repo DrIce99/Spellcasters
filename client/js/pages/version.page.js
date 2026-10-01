@@ -42,7 +42,10 @@ function renderChangelog() {
             items.forEach(item => list.appendChild(makeElement('li', null, item)));
             card.appendChild(list);
         }
-        return card;
+        // Il contenitore esterno porta il "pad" sulla linea del tempo
+        const wrapper = makeElement('div', index === 0 ? 'version-entry current' : 'version-entry');
+        wrapper.appendChild(card);
+        return wrapper;
     }));
 }
 

@@ -1,5 +1,5 @@
 // player-info.page.js - Statistiche del giocatore e grafici radar (Chart.js da CDN)
-import { initColorTheme } from '../ui/theme.js';
+import { initColorTheme, onColorThemeChange } from '../ui/theme.js';
 import { getPlayerData, getCurrentUsername, spendSkillPoint } from '../services/player-db.js';
 import { getExpToNext } from '../game/progression.js';
 import {
@@ -48,7 +48,18 @@ function getRadarDataPredisposizione(predisposizione) {
 let radarChart1 = null;
 let radarChart2 = null;
 
+// Colori dei grafici presi dalle variabili del tema (giorno/notte)
+function getThemeColors() {
+  const css = getComputedStyle(document.body);
+  const read = (name) => css.getPropertyValue(name).trim();
+  return { text: read('--text'), accent: read('--accent'), accent2: read('--accent-2'), line: read('--line') };
+}
+
+let lastChartData = null;
+
 function renderRadarCharts(affinita, predisposizione) {
+  lastChartData = { affinita, predisposizione };
+  const theme = getThemeColors();
   loadChartJs(() => {
     const data1 = getRadarDataAffinita(affinita);
     const data2 = getRadarDataPredisposizione(predisposizione);
@@ -62,8 +73,8 @@ function renderRadarCharts(affinita, predisposizione) {
         datasets: [{
           label: 'Utilizzo Elementi',
           data: data1.data,
-          backgroundColor: 'rgba(0,234,255,0.10)',
-          borderColor: 'rgba(255,255,255,0.5)',
+          backgroundColor: theme.accent + '22',
+          borderColor: theme.accent,
           pointBackgroundColor: data1.colori,
           pointBorderColor: 'rgba(127,92,255,0.0)',
           borderWidth: 3,
@@ -75,9 +86,9 @@ function renderRadarCharts(affinita, predisposizione) {
         plugins: { legend: { display: false } },
         scales: {
           r: {
-            angleLines: { color: '#7f5cff44' },
-            grid: { color: '#7f5cff22' },
-            pointLabels: { font: { family: 'Cinzel', size: 14 }, color: data1.colori },
+            angleLines: { color: theme.line },
+            grid: { color: theme.line },
+            pointLabels: { font: { family: 'Cinzel', size: 14, weight: '600' }, color: theme.text },
             ticks: { display: false }
           }
         },
@@ -92,15 +103,15 @@ function renderRadarCharts(affinita, predisposizione) {
         datasets: [{
           label: 'Utilizzo Proiezioni',
           data: data2.data,
-          backgroundColor: 'rgba(127,92,255,0.18)',
-          borderColor: '#7f5cff',
-          pointBackgroundColor: '#7f5cff',
+          backgroundColor: theme.accent2 + '2e',
+          borderColor: theme.accent2,
+          pointBackgroundColor: theme.accent2,
           borderWidth: 2
         }]
       },
       options: {
         plugins: { legend: { display: false } },
-        scales: { r: { angleLines: { color: '#7f5cff44' }, grid: { color: '#7f5cff22' }, pointLabels: { font: { family: 'Cinzel', size: 14 }, color: '#7f5cff' }, ticks: { display: false } } },
+        scales: { r: { angleLines: { color: theme.line }, grid: { color: theme.line }, pointLabels: { font: { family: 'Cinzel', size: 14, weight: '600' }, color: theme.text }, ticks: { display: false } } },
         responsive: false
       }
     });
@@ -159,7 +170,11 @@ function makeElement(tag, className, text) {
 function statRow(label, value, { labelColor } = {}) {
   const li = makeElement('li');
   const labelEl = makeElement('span', 'stat-label', label);
-  if (labelColor) labelEl.style.color = labelColor;
+  // Il colore dell'elemento va su un piccolo pad accanto all'etichetta: il testo resta leggibile
+  if (labelColor) {
+    labelEl.classList.add('element');
+    labelEl.style.setProperty('--el', labelColor);
+  }
   li.append(labelEl, makeElement('span', 'stat-value', value));
   return li;
 }
@@ -223,8 +238,8 @@ function marginsRow(stats) {
   li.appendChild(makeElement('span', 'stat-label', 'Margine di errore'));
   const values = makeElement('span', 'stat-margins-values');
   for (const element of ELEMENTS) {
-    const item = makeElement('span', 'stat-value', `${capitalize(element)} ${formatPercent(stats.recognitionMargin[element])}`);
-    item.style.color = getElementColor(element);
+    const item = makeElement('span', 'stat-element', `${capitalize(element)} ${formatPercent(stats.recognitionMargin[element])}`);
+    item.style.setProperty('--el', getElementColor(element));
     values.appendChild(item);
   }
   li.appendChild(values);
@@ -275,6 +290,11 @@ async function spendPoint(skill) {
 }
 
 renderPlayerInfo();
+
+// Con G/N cambia il tema: i grafici vanno ridisegnati con i nuovi colori
+onColorThemeChange(() => {
+  if (lastChartData) renderRadarCharts(lastChartData.affinita, lastChartData.predisposizione);
+});
 
 document.getElementById('back-home-btn').onclick = () => {
   window.location.href = '/home.html';

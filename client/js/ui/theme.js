@@ -2,8 +2,8 @@
 
 // --- Color Theme (Day/Night) ---
 let currentColorTheme = 'day';
-const DAY_COLOR = '#ffffff';
-const NIGHT_COLOR = '#111111';
+const DAY_COLOR = '#f0f4ff';
+const NIGHT_COLOR = '#11141c';
 const colorThemeListeners = new Set();
 
 /** Imposta il tema colore e aggiorna la classe del body (usata dai CSS per le variabili). */
@@ -14,6 +14,11 @@ function setColorTheme(mode) {
   document.body.style.backgroundColor = currentColorTheme === 'night' ? NIGHT_COLOR : DAY_COLOR;
   localStorage.setItem('colorMode', currentColorTheme);
   colorThemeListeners.forEach(listener => listener(currentColorTheme));
+}
+
+/** Registra una funzione chiamata a ogni cambio di tema colore */
+function onColorThemeChange(listener) {
+  colorThemeListeners.add(listener);
 }
 
 function getColorTheme() {
@@ -117,6 +122,7 @@ document.addEventListener('mouseout', (e) => {
 export {
   setColorTheme,
   getColorTheme,
+  onColorThemeChange,
   initColorTheme,
   createColorThemeToggle,
   setUITheme,
