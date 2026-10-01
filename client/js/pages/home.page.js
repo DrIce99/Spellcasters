@@ -1,6 +1,7 @@
 // home.page.js - Schermata Home: navigazione, impostazioni, temi
 import { createUIThemeToggle, createColorThemeToggle, initColorTheme, initUITheme } from '../ui/theme.js';
 import { startFogBackground } from '../ui/fog-background.js';
+import { CURRENT_VERSION } from '../data/changelog.js';
 
 initColorTheme();
 initUITheme();
@@ -13,7 +14,10 @@ if (!username) {
 // --- Navigazione ---
 document.getElementById('btn-lab').onclick = () => { window.location.href = '/lab.html'; };
 document.getElementById('btn-arena').onclick = () => { window.location.href = '/arena.html'; };
-document.getElementById('version').onclick = () => { window.location.href = '/version.html'; };
+const versionBtn = document.getElementById('version');
+versionBtn.textContent = `Version ${CURRENT_VERSION}`;
+versionBtn.title = 'Patch notes';
+versionBtn.onclick = () => { window.location.href = '/version.html'; };
 document.getElementById('logout-btn').onclick = () => {
     localStorage.removeItem('currentPlayer');
     window.location.href = '/index.html';

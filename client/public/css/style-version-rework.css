@@ -18,7 +18,8 @@ body {
     /* Forma geometrica a parallelogramma */
     clip-path: polygon(0 5%, 100% 0, 100% 95%, 0 100%); 
     padding: 15px 30px;
-    width: 340px;
+    width: min(560px, 90vw);
+    box-sizing: border-box;
     text-align: left;
     margin-bottom: 25px;
     font-family: var(--font-family-rework);
@@ -30,4 +31,19 @@ body {
 
 .version-info p {
     font-family: var(--font-family-rework);
+}
+.version-date {
+    font-size: 0.9em;
+    opacity: 0.75;
+}
+
+.version-changes {
+    margin: 6px 0 4px;
+    padding-left: 20px;
+    color: var(--text-color);
+    font-family: var(--font-family-rework);
+}
+
+.version-changes li {
+    margin: 4px 0;
 }

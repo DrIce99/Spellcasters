@@ -1,6 +1,7 @@
 // player-db.js - Lettura/scrittura dei dati giocatore su Firestore
-import { doc, setDoc, getDoc, updateDoc, increment } from "firebase/firestore";
+import { doc, setDoc, getDoc, updateDoc, increment, runTransaction } from "firebase/firestore";
 import { db } from "./firebase.js";
+import { SKILLS, computePlayerStats, isSkillMaxed } from "../game/player-stats.js";
 
 export function getCurrentUsername() {
   return localStorage.getItem('currentPlayer');
@@ -15,8 +16,8 @@ export function createDefaultPlayer(username, password = '') {
     livello: 1,
     affinita: {},        // {fuoco: n, acqua: n, ...}
     proiezioniUsate: {}, // {proiettile: n, spaziale: n}
-    mana: 10,
-    manaMax: 10,
+    mana: SKILLS.mp.base,
+    puntiAbilita: {},    // {hp: n, atk: n, mp: n, riduzioneMana: n}: i non spesi = (livello - 1) - somma
     vittorie: 0,
     partite: 0,
     magie: [],
@@ -47,6 +48,28 @@ export async function savePlayerData(username, data) {
     return;
   }
   await setDoc(ref, data, { merge: true });
+}
+
+/**
+ * Spende un punto abilità su una statistica. In transazione: il controllo dei punti
+ * disponibili e l'incremento avvengono insieme, così un doppio clic non spende punti inesistenti.
+ * @returns {Promise<object>} il documento del giocatore aggiornato
+ */
+export async function spendSkillPoint(username, skill) {
+  if (!username || !SKILLS[skill]) throw new Error('Statistica non valida');
+  const ref = doc(db, "players", username);
+  return runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(ref);
+    if (!snap.exists()) throw new Error('Giocatore non trovato');
+    const data = snap.data();
+    const stats = computePlayerStats(data);
+    if (stats.skillPointsAvailable <= 0) throw new Error('Nessun punto abilità disponibile');
+    if (isSkillMaxed(skill, stats.allocation[skill])) throw new Error('Statistica già al massimo');
+
+    const puntiAbilita = { ...stats.allocation, [skill]: stats.allocation[skill] + 1 };
+    transaction.update(ref, { puntiAbilita });
+    return { ...data, puntiAbilita };
+  });
 }
 
 // Incrementa atomicamente dei contatori annidati, es:

@@ -12,13 +12,11 @@ export default class DollarRecognizer {
         {x: 100, y: 120},  // Inizio in alto
         {x: 110, y: 110},
         {x: 120, y: 120},
-        {x: 100, y: 100},
     ]);
 
     this.addGesture('fuoco', [
         {x: 100, y: 100},  // Inizio in alto
         {x: 120, y: 120},
-        {x: 110, y: 110},
         {x: 100, y: 120},
     ]);
 
@@ -96,16 +94,14 @@ export default class DollarRecognizer {
         {x: 60, y: 80},  // Inizio in alto a sinistra
         {x: 120, y: 80}, // Spostamento a destra
         {x: 120, y: 120}, // Spostamento in basso
-        {x: 80, y: 120}, // Spostamento a sinistra
-        {x: 80, y: 60}   // Chiusura del quadrato
+        {x: 80, y: 120} // Spostamento a sinistra
     ]);
 
     this.addGesture('terra', [
         {x: 80, y: 60},  // Inizio in alto a sinistra
         {x: 80, y: 120}, // Spostamento a destra
         {x: 120, y: 120}, // Spostamento in basso
-        {x: 120, y: 80}, // Spostamento a sinistra
-        {x: 60, y: 80}   // Chiusura del quadrato
+        {x: 120, y: 80} // Spostamento a sinistra
     ]);
 
     this.addGesture('terra', [
@@ -113,8 +109,7 @@ export default class DollarRecognizer {
         {x: 110, y: 80}, // Spostamento a destra
         {x: 120, y: 100}, // Spostamento in basso
         {x: 100, y: 120}, // Spostamento a sinistra
-        {x: 80, y: 100},  // Spostamento in basso
-        {x: 80, y: 40}  // Spostamento in alto
+        {x: 80, y: 100}  // Spostamento in basso
     ]);
 
     this.addGesture('terra', [
@@ -122,8 +117,7 @@ export default class DollarRecognizer {
         {x: 80, y: 100}, // Spostamento a destra
         {x: 100, y: 120}, // Spostamento in basso
         {x: 120, y: 100}, // Spostamento a sinistra
-        {x: 110, y: 80},  // Spostamento in basso
-        {x: 40, y: 80}  // Spostamento in alto
+        {x: 110, y: 80}  // Spostamento in basso
     ]);
 
     this.addGesture('cerchio', [
@@ -193,7 +187,6 @@ export default class DollarRecognizer {
         {x: 100, y: 80},  // Verticale su
         {x: 115, y: 100},  // Obliqua alto-destra
         {x: 115, y: 80}, // Verticale giù
-        {x: 100, y: 100}, // Obliqua basso-destra
     ]);
   }
 
@@ -219,6 +212,18 @@ export default class DollarRecognizer {
     }
 
     return bestMatch;
+  }
+
+  // Punteggio migliore per ogni simbolo (serve per applicare soglie diverse a ciascuno)
+  scoresByName(points) {
+    if (points.length < 10) return {};
+    const normalized = this.normalize(points);
+    const scores = {};
+    for (const template of this.templates) {
+      const score = this.compare(normalized, template.points);
+      if (score > (scores[template.name] ?? -Infinity)) scores[template.name] = score;
+    }
+    return scores;
   }
 
   normalize(points) {

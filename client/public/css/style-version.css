@@ -13,7 +13,8 @@ font-family: "Cinzel", serif;
     border-radius: 10px;
     padding: 18px 30px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-    width: 320px;
+    width: min(560px, 90vw);
+    box-sizing: border-box;
     text-align: center;
     margin-bottom: 20px;
 }
@@ -72,4 +73,19 @@ font-family: "Cinzel", serif;
     text-align: end;
     color: var(--home-title-color);
     position: fixed;
+}
+.version-date {
+    font-size: 0.9em;
+    opacity: 0.75;
+}
+
+.version-changes {
+    margin: 6px 0 4px;
+    padding-left: 20px;
+    text-align: left;
+    color: var(--text-color);
+}
+
+.version-changes li {
+    margin: 4px 0;
 }

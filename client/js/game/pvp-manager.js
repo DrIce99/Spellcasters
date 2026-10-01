@@ -6,6 +6,7 @@ import { applyElementalHit, statusEffectManager, createElementalDebuffParticles 
 import { audioManager } from './audio-manager.js';
 import { getElementColor, getOpponentElementColor } from './elements.js';
 import { VARIANT_COLORS } from './spell-interactions.js';
+import { computePlayerStats, applyElementDefense, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT } from './player-stats.js';
 import { WS_URL } from '../services/config.js';
 import { loadPlayerFromDB, savePlayerData, getCurrentUsername } from '../services/player-db.js';
 
@@ -57,6 +58,9 @@ export class PvPManager {
         this.lastCastingState = null;
         this.processedHits = new Set();
         this.healthPersistenceKey = null;
+        this.maxHealth = 100;
+        this.opponentMaxHealth = 100;
+        this.playerStats = computePlayerStats({}); // sostituite da engine.js quando arriva il profilo
 
         // loading -> waiting_for_ready -> countdown -> active -> finished
         this.matchState = 'loading';
@@ -96,6 +100,14 @@ export class PvPManager {
         this.matchData = JSON.parse(matchDataStr);
         this.playerRole = this.matchData.playerRole;
         this.opponentData = this.matchData.opponent;
+
+        // Vita massima decisa dal server in base agli HP di ciascuno (punti abilità)
+        const opponentRole = this.playerRole === 'player1' ? 'player2' : 'player1';
+        const gameState = this.matchData.gameState || {};
+        this.maxHealth = gameState[this.playerRole]?.maxHealth || 100;
+        this.opponentMaxHealth = gameState[opponentRole]?.maxHealth || 100;
+        this.gameHooks.playerHealth = this.maxHealth;
+        this.opponent.health = this.opponentMaxHealth;
 
         this.healthPersistenceKey = `match_health_${this.matchData.matchId}`;
         this.loadHealthFromStorage();
@@ -393,7 +405,8 @@ export class PvPManager {
     // Movimento/controlli/stun del giocatore locale li gestisce engine.js
     setupStatusEffectCallbacks() {
         statusEffectManager.registerDamageCallback('player', (damage, source) => {
-            this.gameHooks.playerHealth -= damage;
+            const element = source === 'burning' ? 'fuoco' : null;
+            this.gameHooks.playerHealth -= applyElementDefense(damage, this.playerStats, element);
             this.saveHealthToStorage();
             this.showDamageEffect(true);
             triggerCameraShake(5, 150);
@@ -513,6 +526,7 @@ export class PvPManager {
             existing.element = data.element || existing.element;
             existing.variant = data.variant || null;
             existing.expiresAt = data.expiresIn ? Date.now() + data.expiresIn : null;
+            if (data.damagePerTick > 0) existing.damagePerTick = data.damagePerTick;
             return;
         }
 
@@ -521,22 +535,26 @@ export class PvPManager {
             points: data.polygonPoints,
             element: data.element,
             variant: data.variant,
-            expiresIn: data.expiresIn
+            expiresIn: data.expiresIn,
+            damagePerTick: data.damagePerTick
         });
     }
 
-    // Aggiunge un'area avversaria, con il danno periodico per chi resta dentro
-    registerOpponentArea({ id, points, element = null, variant = null, expiresIn = null }) {
+    // Aggiunge un'area avversaria, con il danno periodico per chi resta dentro.
+    // damagePerTick lo calcola chi lancia l'area (dipende dal suo ATK); se manca si usa il valore base.
+    registerOpponentArea({ id, points, element = null, variant = null, expiresIn = null, damagePerTick = null }) {
         if (this.activeSpatialIntervals[id]) return;
         this.opponentSpazialeAreas.push({
             id,
             points,
             element,
             variant,
-            expiresAt: expiresIn ? Date.now() + expiresIn : null
+            expiresAt: expiresIn ? Date.now() + expiresIn : null,
+            damagePerTick: damagePerTick > 0
+                ? damagePerTick
+                : BASE_DAMAGE.spaziale * (this.calculatePolygonArea(points) / SPATIAL_DAMAGE_AREA_UNIT)
         });
 
-        const damagePerTick = 0.5 * (this.calculatePolygonArea(points) / 700);
         let ticks = 0;
         const maxTicks = 1000;
 
@@ -551,12 +569,18 @@ export class PvPManager {
             if (!area || area.variant) return;
             const playerPos = this.gameHooks.virtualMouse;
             if (playerPos && this.isPointInPolygon(playerPos, points)) {
-                this.applyDamage(damagePerTick);
+                const element = area.element === 'spaziale' ? null : area.element;
+                this.applyDamage(applyElementDefense(area.damagePerTick, this.playerStats, element));
             }
         }, 500);
     }
 
-    // Danno non legato a un proiettile (aree, magma): salva la vita e controlla la sconfitta
+    setPlayerStats(stats) {
+        this.playerStats = stats;
+    }
+
+    // Danno non legato a un proiettile (aree, magma), già ridotto dalle difese:
+    // salva la vita e controlla la sconfitta
     applyDamage(amount) {
         this.gameHooks.playerHealth -= amount;
         this.saveHealthToStorage();
@@ -623,7 +647,8 @@ export class PvPManager {
             areaId: spellData.areaId,
             variant: spellData.variant,
             expiresIn: spellData.expiresIn,
-            giveToReceiver: spellData.giveToReceiver
+            giveToReceiver: spellData.giveToReceiver,
+            damagePerTick: spellData.damagePerTick
         });
     }
 
@@ -714,7 +739,7 @@ export class PvPManager {
                     projectile.hit = true;
                     this.showDamageEffect(true);
                     triggerCameraShake(10, 250);
-                    updateRedOverlay(this.gameHooks.playerHealth, 100);
+                    updateRedOverlay(this.gameHooks.playerHealth, this.maxHealth);
                 }
             } else if (projectile.owner === 'local') {
                 if (this.isProjectileHitting(projectile, this.opponent.position)) {
@@ -735,11 +760,13 @@ export class PvPManager {
         return Math.hypot(projectile.x - position.x, projectile.y - position.y) < HIT_RADIUS;
     }
 
+    // Danno "lordo" (ATK, elemento, bonus danno): la difesa del bersaglio la applica il server
     calculateDamage(projectile) {
-        const baseByType = { proiettile: 15, spaziale: 2 };
         const multiplierByElement = { fuoco: 1.1, acqua: 1.2, aria: 1.2, terra: 1.4 };
-        const baseDamage = baseByType[projectile.tipo] ?? 10;
-        return Math.floor(baseDamage * (multiplierByElement[projectile.element] || 1));
+        const baseDamage = this.playerStats.damage.proiettile;
+        const dmgBonus = this.playerStats.elementDmgBonus[projectile.element] || 0;
+        const damage = baseDamage * (multiplierByElement[projectile.element] || 1) * (1 + dmgBonus);
+        return Math.round(damage * 10) / 10;
     }
 
     // ------------------------------------------------------------

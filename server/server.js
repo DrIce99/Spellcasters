@@ -37,7 +37,11 @@ const MATCHMAKING_CONFIG = {
     MATCH_TIMEOUT: 300000,   // 5 minuti per partita
     REJOIN_GRACE_MS: 20000,  // tempo per passare dalla pagina Arena alla pagina di gioco
     HEARTBEAT_MS: 25000,     // intervallo ping per scoprire le connessioni morte
-    DEFAULT_ARENA_SIZE: 800  // lato dell'arena se nessun client ha inviato le dimensioni dello schermo
+    DEFAULT_ARENA_SIZE: 800, // lato dell'arena se nessun client ha inviato le dimensioni dello schermo
+    DEFAULT_HP: 100,
+    MAX_HP: 10000,
+    MAX_ELEMENT_DEF: 0.9,
+    MAX_HIT_DAMAGE: 1000
 };
 
 wss.on('connection', (ws) => {
@@ -118,7 +122,8 @@ function handleMessage(ws, data) {
                 areaId: data.areaId,
                 variant: data.variant,
                 expiresIn: data.expiresIn,
-                giveToReceiver: data.giveToReceiver
+                giveToReceiver: data.giveToReceiver,
+                damagePerTick: data.damagePerTick
             });
             break;
         case 'spellRemoval':
@@ -223,6 +228,24 @@ function rejoinMatch(ws, data) {
     broadcastOnlineCount();
 }
 
+// Vita massima e difese elementali inviate dal client (punti abilità e affinità), con limiti
+function sanitizeCombatStats(raw) {
+    const clamp = (value, min, max, fallback) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+    };
+    const elementDef = {};
+    for (const [element, value] of Object.entries(raw?.elementDef || {})) {
+        if (typeof element === 'string' && element.length <= 20) {
+            elementDef[element] = clamp(value, 0, MATCHMAKING_CONFIG.MAX_ELEMENT_DEF, 0);
+        }
+    }
+    return {
+        maxHp: clamp(raw?.maxHp, 1, MATCHMAKING_CONFIG.MAX_HP, MATCHMAKING_CONFIG.DEFAULT_HP),
+        elementDef
+    };
+}
+
 function joinMatchmaking(ws, data) {
     const player = connectedPlayers.get(ws);
     if (!player) {
@@ -239,6 +262,7 @@ function joinMatchmaking(ws, data) {
     player.vittorie = data.vittorie ?? player.vittorie;
     player.partite = data.partite ?? player.partite;
     player.winRate = calculateWinRate(player.vittorie, player.partite);
+    player.combatStats = sanitizeCombatStats(data.combatStats);
     // Lato massimo di un'arena quadrata che entra nello schermo del giocatore
     const viewportSide = Math.floor(Math.min(Number(data.viewport?.width), Number(data.viewport?.height)));
     player.viewportSide = viewportSide > 0 ? viewportSide : null;
@@ -322,6 +346,18 @@ function computeArenaSize(player1, player2) {
     return sides.length ? Math.min(...sides) : MATCHMAKING_CONFIG.DEFAULT_ARENA_SIZE;
 }
 
+function buildPlayerGameState(player) {
+    const maxHealth = player.combatStats?.maxHp || MATCHMAKING_CONFIG.DEFAULT_HP;
+    return {
+        id: player.id,
+        username: player.username,
+        level: player.level,
+        health: maxHealth,
+        maxHealth,
+        elementDef: player.combatStats?.elementDef || {}
+    };
+}
+
 function createMatch(player1, player2) {
     const matchId = uuidv4();
     const matchData = {
@@ -333,8 +369,8 @@ function createMatch(player1, player2) {
         player2Ready: false,
         matchState: 'waiting_for_ready', // waiting_for_ready -> starting -> active
         gameState: {
-            player1: { id: player1.id, username: player1.username, level: player1.level, health: 100 },
-            player2: { id: player2.id, username: player2.username, level: player2.level, health: 100 }
+            player1: buildPlayerGameState(player1),
+            player2: buildPlayerGameState(player2)
         }
     };
 
@@ -411,12 +447,18 @@ function handleProjectileHit(ws, data) {
     // Chi invia l'hit è chi ha sparato: il bersaglio è sempre l'avversario
     const targetKey = isPlayer1 ? 'player2' : 'player1';
     const shooterKey = isPlayer1 ? 'player1' : 'player2';
-    match.gameState[targetKey].health -= data.damage;
+    const target = match.gameState[targetKey];
+
+    // Danno lordo del tiratore, ridotto dalla difesa del bersaglio verso quell'elemento
+    const rawDamage = Math.min(MATCHMAKING_CONFIG.MAX_HIT_DAMAGE, Math.max(0, Number(data.damage) || 0));
+    const defense = (data.element && target.elementDef?.[data.element]) || 0;
+    const damage = Math.round(rawDamage * (1 - defense) * 10) / 10;
+    target.health -= damage;
 
     send(opponent, {
         type: 'projectileHit',
         target: targetKey,
-        damage: data.damage,
+        damage,
         element: data.element,
         timestamp: Date.now()
     });

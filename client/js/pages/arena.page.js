@@ -1,6 +1,7 @@
 // arena.page.js - Lobby dell'Arena: matchmaking, classifica, accesso al training
 import { getPlayerData } from '../services/player-db.js';
 import { WS_URL } from '../services/config.js';
+import { computePlayerStats, getCombatStats } from '../game/player-stats.js';
 import { initColorTheme, initUITheme } from '../ui/theme.js';
 
 class ArenaManager {
@@ -269,7 +270,9 @@ class ArenaManager {
             vittorie: this.playerData.vittorie || 0,
             partite: this.playerData.partite || 0,
             // Il server ne ricava l'arena quadrata condivisa tra i due giocatori
-            viewport: { width: window.innerWidth, height: window.innerHeight }
+            viewport: { width: window.innerWidth, height: window.innerHeight },
+            // Vita massima e difese elementali (punti abilità e affinità)
+            combatStats: getCombatStats(computePlayerStats(this.playerData))
         });
         this.updateStatusMessage('Entrando in coda...');
     }

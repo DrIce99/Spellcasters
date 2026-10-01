@@ -141,6 +141,15 @@ Proiezioni:
 - extra: due proiettili avversari che si incrociano interagiscono tra loro; l'acqua raffredda il magma
 - l'esperienza si guadagna solo nelle partite PvP online (non in laboratorio né in training)
 
+**Progressione** (formule in `client/js/game/player-stats.js`):
+
+- il livello non aumenta più mana né rigenerazione: ogni livello oltre il primo dà **1 punto abilità**
+- i punti si spendono nella pagina Info Giocatore (pannello "Statistiche") su HP, ATK base, MP e riduzione consumo mana;
+  su Firestore si salva `puntiAbilita` (punti spesi per statistica), i non spesi = (livello − 1) − somma
+- l'affinità con un elemento dà passivamente difesa da quell'elemento (fino al 30%) e un margine di errore
+  maggiore nel disegnarne la runa (dal 40% fino al 50%)
+- bonus danno elementale, tasso CRIT e DMG CRIT sono mostrati ma restano a 0 per ora
+
 IL MANA CHE SI POSSIEDE È LIMITATO ANCHE IN LABORATORIO.
 
 UI per vedere quanto mana si possiede: perimetro colorato al limite dello schermo (in maniera simmetrica, è come una barra di caricamento il cui massimo è il centro del lato superiore e il minimo il centro del lato inferiore)

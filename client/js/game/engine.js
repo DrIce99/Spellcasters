@@ -11,7 +11,10 @@ import { applyCameraShake, triggerCameraShake, updateRedOverlay, drawRedOverlay 
 import { statusEffectManager, applyElementalHit, updateStatusEffects, createElementalDebuffParticles } from "./status-effects.js";
 import { audioManager } from './audio-manager.js';
 import { isElement, getElementColor, parseColor, withAlpha, NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR, DEFAULT_SPAZIALE_COLOR } from './elements.js';
-import { getExpToNext, getManaStatsForLevel, BURNOUT_FRAMES } from './progression.js';
+import { getExpToNext, BURNOUT_FRAMES } from './progression.js';
+import {
+  computePlayerStats, getRecognitionThreshold, applyElementDefense, SPATIAL_DAMAGE_AREA_UNIT
+} from './player-stats.js';
 import {
   getInteraction, blocksProjectiles, VARIANT_COLORS,
   LUSH_DURATION_MS, MAGMA_DURATION_MS, MAGMA_TRAIL_MS, LUSH_MANA_REGEN_MULTIPLIER
@@ -62,7 +65,6 @@ const PROJECTILE_MANA_COST = 2;
 const ELEMENT_MANA_COST = 1;
 const MIN_LAUNCH_DISTANCE = 30;
 const CIRCLE_RADIUS = 120;
-const RECOGNITION_THRESHOLD = 0.60;
 const DRAW_SOUND_THROTTLE = 100;
 const COUNTERS_SAVE_INTERVAL_MS = 1000;
 const MANA_SAVE_INTERVAL_MS = 15000;
@@ -111,6 +113,7 @@ let gameMode = 'training'; // 'training' | 'pvp'
 let playerLife = 100;      // vita fuori dal PvP
 
 // === PROGRESSIONE (caricata da Firebase) ===
+let playerStats = computePlayerStats({}); // valori base finché non arriva il profilo
 let playerLevel = 1;
 let playerExp = 0;
 let playerLoaded = false;
@@ -163,8 +166,9 @@ function registerPlayerStatusCallbacks() {
 
   // Nel PvP danni e particelle degli effetti sono gestiti dal PvPManager
   if (!pvpManager) {
-    statusEffectManager.registerDamageCallback('player', (damage) => {
-      playerLife = Math.max(0, playerLife - damage);
+    statusEffectManager.registerDamageCallback('player', (damage, source) => {
+      const element = source === 'burning' ? 'fuoco' : null;
+      playerLife = Math.max(0, playerLife - applyElementDefense(damage, playerStats, element));
       triggerCameraShake(5, 150);
     });
     statusEffectManager.registerVisualCallback('player', (effectType, element) => {
@@ -186,24 +190,23 @@ async function loadPlayerProgress() {
     playerLevel = player.livello || 1;
     playerExp = player.esperienza || 0;
   }
-  applyLevelStats(playerLevel);
+  // Mana, vita, ATK e difese dipendono dai punti abilità e dall'affinità, non dal livello
+  playerStats = computePlayerStats(player || {});
+  setManaValues({ max: playerStats.mp, regen: playerStats.manaRegenPerFrame });
+  playerLife = playerStats.hp;
+  if (pvpManager) pvpManager.setPlayerStats(playerStats);
 
   // Il mana salvato si ricarica anche mentre si è offline
-  const { max, regenPerFrame } = getManaStatsForLevel(playerLevel);
+  const max = playerStats.mp;
   let mana = max;
   if (player && typeof player.mana === 'number' && typeof player.manaUpdatedAt === 'number') {
     const elapsedFrames = (Date.now() - player.manaUpdatedAt) / 1000 * 60;
-    mana = Math.min(max, player.mana + elapsedFrames * regenPerFrame);
+    mana = Math.min(max, player.mana + elapsedFrames * playerStats.manaRegenPerFrame);
   }
   setCurrentMana(mana);
   lastSavedMana = mana;
   playerLoaded = true;
   drawExpBar();
-}
-
-function applyLevelStats(level) {
-  const { max, regenPerFrame } = getManaStatsForLevel(level);
-  setManaValues({ max, regen: regenPerFrame });
 }
 
 // Nel PvP si possono lanciare magie solo a partita iniziata
@@ -383,11 +386,26 @@ window.addEventListener("keyup", (e) => {
 // RICONOSCIMENTO DEI SIMBOLI
 // ============================================================
 
+// Ogni simbolo ha la sua soglia: l'affinità con un elemento ne tollera disegni più imprecisi.
+// Vince il simbolo che supera la propria soglia con più margine.
+function pickRecognizedSymbol(stroke) {
+  const scores = recognizer.scoresByName(stroke);
+  let best = null;
+  let bestMargin = 0;
+  for (const [name, score] of Object.entries(scores)) {
+    const margin = score - getRecognitionThreshold(playerStats, name);
+    if (margin > bestMargin) {
+      bestMargin = margin;
+      best = name;
+    }
+  }
+  return best;
+}
+
 function recognizeSpell(stroke) {
   if (stroke.length < 10) return null;
-  const result = recognizer.recognize(stroke);
-  if (result.score <= RECOGNITION_THRESHOLD) return null;
-  const name = result.name;
+  const name = pickRecognizedSymbol(stroke);
+  if (!name) return null;
 
   // Dentro un cerchio magico i simboli caricano il cerchio invece di lanciare
   if (magicCircle) {
@@ -712,6 +730,12 @@ function updateProjectiles() {
 // PROIEZIONE: SPAZIALE (aree permanenti)
 // ============================================================
 
+// Danno ogni 0.5 s a chi sta dentro l'area: lo calcola chi la lancia (dipende dal suo ATK)
+function getAreaDamagePerTick(polygon, element) {
+  const dmgBonus = playerStats.elementDmgBonus[element] || 0;
+  return playerStats.damage.spaziale * (polygonArea(polygon) / SPATIAL_DAMAGE_AREA_UNIT) * (1 + dmgBonus);
+}
+
 // Registra un'area del giocatore locale (lanciata da lui, oppure ceduta dall'avversario)
 function registerLocalArea({ id, polygon, color, element, variant = null, expiresAt = null }) {
   const size = polygonArea(polygon);
@@ -744,7 +768,8 @@ function activateSpazialeArea(polygon, color, element) {
       position: polygonCenter(polygon),
       polygonPoints: polygon,
       element: areaElement,
-      areaId
+      areaId,
+      damagePerTick: getAreaDamagePerTick(polygon, areaElement)
     });
   }
 
@@ -808,7 +833,7 @@ function updateSpazialeAreas() {
   const deltaTime = 1 / 60;
   let manaToDrain = 0;
   for (const area of permanentSpazialeAreas) {
-    manaToDrain += area.manaDrain;
+    manaToDrain += area.manaDrain * (1 - playerStats.riduzioneMana);
     area.affinityTimer += deltaTime;
     if (area.affinityTimer >= 1) {
       area.affinityTimer -= 1;
@@ -902,7 +927,8 @@ function isLushActive() {
     || getOpponentAreas().some(a => isVariantAlive(a, 'lush'));
 }
 
-function damageLocalPlayer(amount) {
+function damageLocalPlayer(amount, element = null) {
+  amount = applyElementDefense(amount, playerStats, element);
   if (pvpManager) {
     if (pvpManager.matchState === 'active') pvpManager.applyDamage(amount);
   } else {
@@ -922,6 +948,7 @@ function sendAreaUpdate(area, extra = {}) {
     areaId: area.id,
     variant: area.variant,
     expiresIn: area.expiresAt ? Math.max(0, area.expiresAt - Date.now()) : null,
+    damagePerTick: getAreaDamagePerTick(area.points, area.element),
     ...extra
   });
 }
@@ -1121,7 +1148,7 @@ function updateMagma() {
   }
   if (damage > 0) {
     lastMagmaDamage = now;
-    damageLocalPlayer(damage);
+    damageLocalPlayer(damage, 'fuoco'); // il magma brucia: conta la difesa dal fuoco
   }
 }
 
@@ -1310,6 +1337,7 @@ function drawPath() {
 
 function spendMana(amount) {
   if (getManaValues().inBurnout) return false;
+  amount *= 1 - playerStats.riduzioneMana;
   if (getCurrentMana() < amount) {
     triggerBurnout();
     return false;
@@ -1355,18 +1383,15 @@ function flushExperience() {
   playerExp += expToAdd;
   expToAdd = 0;
 
-  let leveledUp = false;
+  // Salire di livello non cambia le statistiche: dà un punto abilità da spendere nelle info giocatore
   while (playerExp >= getExpToNext(playerLevel)) {
     playerExp -= getExpToNext(playerLevel);
     playerLevel++;
-    leveledUp = true;
   }
-  if (leveledUp) applyLevelStats(playerLevel);
 
   savePlayerData(username, {
     esperienza: playerExp,
-    livello: playerLevel,
-    manaMax: getManaStatsForLevel(playerLevel).max
+    livello: playerLevel
   }).catch(error => console.error('❌ Errore salvataggio esperienza:', error));
   drawExpBar();
 }
@@ -1649,13 +1674,16 @@ function animate() {
   ctx.restore(); // fine coordinate del mondo
 
   let health;
+  let maxHealth;
   if (pvpManager && pvpManager.isActive()) {
     health = pvpManager.gameHooks.playerHealth;
+    maxHealth = pvpManager.maxHealth;
   } else {
-    playerLife = Math.min(100, playerLife + 0.05); // in training la vita si rigenera
+    playerLife = Math.min(playerStats.hp, playerLife + 0.05); // in training la vita si rigenera
     health = playerLife;
+    maxHealth = playerStats.hp;
   }
-  updateRedOverlay(health, 100);
+  updateRedOverlay(health, maxHealth);
   drawRedOverlay(ctx, canvas);
 
   circleRotation += 0.003;
