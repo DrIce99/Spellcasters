@@ -5,6 +5,7 @@ import { drawProjectilePolygonPattern, drawElementPattern } from "./element-patt
 import { applyElementalHit, statusEffectManager, createElementalDebuffParticles } from './status-effects.js';
 import { audioManager } from './audio-manager.js';
 import { getElementColor, getOpponentElementColor } from './elements.js';
+import { VARIANT_COLORS } from './spell-interactions.js';
 import { WS_URL } from '../services/config.js';
 import { loadPlayerFromDB, savePlayerData, getCurrentUsername } from '../services/player-db.js';
 
@@ -45,9 +46,10 @@ export class PvPManager {
             castingPoints: []
         };
         this.opponentEntity = null;
-        this.opponentSpazialeAreas = [];
+        this.opponentSpazialeAreas = []; // { id, points, element, variant, expiresAt }
         this.activeSpatialIntervals = {};
         this.opponentCircleRotation = 0;
+        this.onAreaGranted = null; // impostata da engine.js: l'avversario ci cede un'area
 
         this.lastUpdateSent = 0;
         this.updateInterval = 1000 / 60;
@@ -497,29 +499,69 @@ export class PvPManager {
         }
 
         const spellId = data.areaId || `spaziale_${data.timestamp}`;
-        if (this.activeSpatialIntervals[spellId]) return; // già presente
 
-        this.opponentSpazialeAreas.push({ id: spellId, points: data.polygonPoints });
+        // L'avversario ci cede un'area (es. la sua aria incendiata dal nostro fuoco)
+        if (data.giveToReceiver) {
+            this.removeOpponentArea(spellId);
+            this.onAreaGranted?.(data);
+            return;
+        }
 
-        // Danno periodico finché il giocatore resta dentro l'area avversaria
-        const damagePerTick = 0.5 * (this.calculatePolygonArea(data.polygonPoints) / 700);
+        // Area già nota: è un aggiornamento (nuovo elemento o nuova variante)
+        const existing = this.opponentSpazialeAreas.find(area => area.id === spellId);
+        if (existing) {
+            existing.element = data.element || existing.element;
+            existing.variant = data.variant || null;
+            existing.expiresAt = data.expiresIn ? Date.now() + data.expiresIn : null;
+            return;
+        }
+
+        this.registerOpponentArea({
+            id: spellId,
+            points: data.polygonPoints,
+            element: data.element,
+            variant: data.variant,
+            expiresIn: data.expiresIn
+        });
+    }
+
+    // Aggiunge un'area avversaria, con il danno periodico per chi resta dentro
+    registerOpponentArea({ id, points, element = null, variant = null, expiresIn = null }) {
+        if (this.activeSpatialIntervals[id]) return;
+        this.opponentSpazialeAreas.push({
+            id,
+            points,
+            element,
+            variant,
+            expiresAt: expiresIn ? Date.now() + expiresIn : null
+        });
+
+        const damagePerTick = 0.5 * (this.calculatePolygonArea(points) / 700);
         let ticks = 0;
         const maxTicks = 1000;
 
-        this.activeSpatialIntervals[spellId] = setInterval(() => {
+        this.activeSpatialIntervals[id] = setInterval(() => {
             if (++ticks > maxTicks) {
-                this.removeOpponentArea(spellId);
+                this.removeOpponentArea(id);
                 return;
             }
             if (this.matchState !== 'active') return;
+            // Le aree trasformate (rigogliose / magma) hanno effetti propri: niente danno da area
+            const area = this.opponentSpazialeAreas.find(a => a.id === id);
+            if (!area || area.variant) return;
             const playerPos = this.gameHooks.virtualMouse;
-            if (playerPos && this.isPointInPolygon(playerPos, data.polygonPoints)) {
-                this.gameHooks.playerHealth -= damagePerTick;
-                this.saveHealthToStorage();
-                this.showDamageEffect(true);
-                if (this.gameHooks.playerHealth <= 0) this.endMatch(false);
+            if (playerPos && this.isPointInPolygon(playerPos, points)) {
+                this.applyDamage(damagePerTick);
             }
         }, 500);
+    }
+
+    // Danno non legato a un proiettile (aree, magma): salva la vita e controlla la sconfitta
+    applyDamage(amount) {
+        this.gameHooks.playerHealth -= amount;
+        this.saveHealthToStorage();
+        this.showDamageEffect(true);
+        if (this.gameHooks.playerHealth <= 0) this.endMatch(false);
     }
 
     removeOpponentArea(areaId) {
@@ -578,7 +620,10 @@ export class PvPManager {
             position: spellData.position,
             polygonPoints: spellData.polygonPoints,
             element: spellData.element,
-            areaId: spellData.areaId
+            areaId: spellData.areaId,
+            variant: spellData.variant,
+            expiresIn: spellData.expiresIn,
+            giveToReceiver: spellData.giveToReceiver
         });
     }
 
@@ -702,6 +747,7 @@ export class PvPManager {
     // ------------------------------------------------------------
 
     renderPvPElements(ctx) {
+        this.removeExpiredOpponentAreas();
         if (this.matchState === 'countdown' && this.countdownCircle) {
             this.drawCountdownCircle(ctx);
         }
@@ -709,6 +755,13 @@ export class PvPManager {
         if (this.opponent.magicCircle) this.drawOpponentMagicCircle(ctx);
         if (this.opponent.casting) this.drawOpponentCasting(ctx);
         this.drawOpponentSpazialeAreas(ctx);
+    }
+
+    removeExpiredOpponentAreas() {
+        const now = Date.now();
+        this.opponentSpazialeAreas
+            .filter(area => area.expiresAt && area.expiresAt <= now)
+            .forEach(area => this.removeOpponentArea(area.id));
     }
 
     drawOpponentSpazialeAreas(ctx) {
@@ -723,11 +776,14 @@ export class PvPManager {
                 ctx.lineTo(area.points[i].x, area.points[i].y);
             }
             ctx.closePath();
-            ctx.strokeStyle = 'rgba(255, 100, 100, 0.6)';
+            const variantColor = VARIANT_COLORS[area.variant];
+            ctx.strokeStyle = variantColor || 'rgba(255, 100, 100, 0.6)';
             ctx.lineWidth = 2;
             ctx.stroke();
-            ctx.fillStyle = 'rgba(255, 100, 100, 0.15)';
+            ctx.globalAlpha = variantColor ? 0.25 : 1;
+            ctx.fillStyle = variantColor || 'rgba(255, 100, 100, 0.15)';
             ctx.fill();
+            ctx.globalAlpha = 1;
         }
         ctx.restore();
     }

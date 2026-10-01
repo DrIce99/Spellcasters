@@ -115,7 +115,10 @@ function handleMessage(ws, data) {
                 position: data.position,
                 polygonPoints: data.polygonPoints,
                 element: data.element,
-                areaId: data.areaId
+                areaId: data.areaId,
+                variant: data.variant,
+                expiresIn: data.expiresIn,
+                giveToReceiver: data.giveToReceiver
             });
             break;
         case 'spellRemoval':

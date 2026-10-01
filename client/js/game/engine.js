@@ -12,6 +12,10 @@ import { statusEffectManager, applyElementalHit, updateStatusEffects, createElem
 import { audioManager } from './audio-manager.js';
 import { isElement, getElementColor, parseColor, withAlpha, NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR, DEFAULT_SPAZIALE_COLOR } from './elements.js';
 import { getExpToNext, getManaStatsForLevel, BURNOUT_FRAMES } from './progression.js';
+import {
+  getInteraction, blocksProjectiles, VARIANT_COLORS,
+  LUSH_DURATION_MS, MAGMA_DURATION_MS, MAGMA_TRAIL_MS, LUSH_MANA_REGEN_MULTIPLIER
+} from './spell-interactions.js';
 
 const recognizer = new DollarRecognizer();
 const username = getCurrentUsername();
@@ -115,6 +119,11 @@ let playerLoaded = false;
 let affinityToAdd = {};
 let proiezioniToAdd = {};
 let expToAdd = 0;
+
+// L'esperienza si guadagna solo in una partita PvP online (non in training né in laboratorio)
+function addExp(amount) {
+  if (pvpManager && pvpManager.matchState === 'active') expToAdd += amount;
+}
 let lastCountersSave = Date.now();
 let lastManaSave = Date.now();
 let lastSavedMana = null;
@@ -135,6 +144,7 @@ function initializeGameMode() {
       return;
     }
     pvpManager = new PvPManager(canvas, ctx, world);
+    pvpManager.onAreaGranted = receiveGrantedArea;
     console.log('🎮 Modalità PvP inizializzata');
   }
   registerPlayerStatusCallbacks();
@@ -660,7 +670,7 @@ function launchProjectile(start, end, { element = null, tipo = "proiettile" } = 
   }
 
   incrementaProiezioneUsataBuffer(tipo);
-  expToAdd += 2;
+  addExp(2);
   audioManager.playProjectileSound(element);
   return true;
 }
@@ -702,24 +712,31 @@ function updateProjectiles() {
 // PROIEZIONE: SPAZIALE (aree permanenti)
 // ============================================================
 
-function activateSpazialeArea(polygon, color, element) {
+// Registra un'area del giocatore locale (lanciata da lui, oppure ceduta dall'avversario)
+function registerLocalArea({ id, polygon, color, element, variant = null, expiresAt = null }) {
   const size = polygonArea(polygon);
-  const areaId = `area_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-  const areaElement = element || 'spaziale';
-
   permanentSpazialeAreas.push({
-    id: areaId,
+    id,
     points: polygon.map(p => ({ ...p })),
     size,
-    color,
-    element: areaElement,
+    color: VARIANT_COLORS[variant] || color,
+    element,
+    variant,
+    expiresAt,
     manaDrain: Math.max(0.01, size / 10000 * 0.01), // mana per frame
     affinityTimer: 0
   });
+  audioManager.setSpatialSpellLoopPlaying(element === 'spaziale' ? null : element, true);
+  return size;
+}
 
-  audioManager.setSpatialSpellLoopPlaying(element, true);
+function activateSpazialeArea(polygon, color, element) {
+  const areaId = `area_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  const areaElement = element || 'spaziale';
+
+  const size = registerLocalArea({ id: areaId, polygon, color, element: areaElement });
   if (element) incrementaAffinitaBuffer(element);
-  expToAdd += Math.floor(size / 1000);
+  addExp(Math.floor(size / 1000));
 
   if (pvpManager && pvpManager.isActive()) {
     pvpManager.sendSpellCast({
@@ -766,6 +783,11 @@ function stopSpatialLoopIfUnused(element) {
   }
 }
 
+function removeSpazialeAreaById(id) {
+  const index = permanentSpazialeAreas.findIndex(a => a.id === id);
+  if (index !== -1) removeSpazialeAreaAt(index);
+}
+
 function removeSpazialeAreaAt(index) {
   const [area] = permanentSpazialeAreas.splice(index, 1);
   notifyAreaRemoval(area);
@@ -801,7 +823,7 @@ function updateSpazialeAreas() {
   } else {
     setCurrentMana(currentMana - manaToDrain);
   }
-  expToAdd += manaToDrain;
+  addExp(manaToDrain);
 }
 
 function drawSpazialePolygon() {
@@ -846,6 +868,282 @@ function drawPolygon(polygon, color) {
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.stroke();
+  ctx.restore();
+}
+
+
+// ============================================================
+// INTERAZIONI TRA MAGIE (regole in spell-interactions.js)
+// ============================================================
+// Ogni client simula le interazioni su tutte le magie che vede (anche quelle dell'avversario).
+// Una AREA però viene modificata solo dal suo proprietario, che avvisa l'avversario:
+// così i due client non si contraddicono. I proiettili si risolvono su entrambi i lati.
+
+const MAGMA_TICK_MS = 500;
+const MAGMA_AREA_DAMAGE = 0.5;
+const MAGMA_TRAIL_DAMAGE = 1;
+const MAGMA_TRAIL_RADIUS = 28;
+const PROJECTILE_COLLISION_RADIUS = 24;
+
+const interactedAreaPairs = new Set();
+let magmaTrail = [];          // { x, y, expiresAt }: pozze lasciate dai proiettili di magma
+let lastMagmaDamage = 0;
+
+function getOpponentAreas() {
+  return pvpManager ? pvpManager.opponentSpazialeAreas : [];
+}
+
+function isVariantAlive(area, variant, now = Date.now()) {
+  return area.variant === variant && (!area.expiresAt || area.expiresAt > now);
+}
+
+function isLushActive() {
+  return permanentSpazialeAreas.some(a => isVariantAlive(a, 'lush'))
+    || getOpponentAreas().some(a => isVariantAlive(a, 'lush'));
+}
+
+function damageLocalPlayer(amount) {
+  if (pvpManager) {
+    if (pvpManager.matchState === 'active') pvpManager.applyDamage(amount);
+  } else {
+    playerLife = Math.max(0, playerLife - amount);
+    triggerCameraShake(3, 100);
+  }
+}
+
+// Comunica all'avversario lo stato attuale di una nostra area (stesso id = aggiornamento)
+function sendAreaUpdate(area, extra = {}) {
+  if (!pvpManager || !pvpManager.isActive()) return;
+  pvpManager.sendSpellCast({
+    type: 'spaziale',
+    position: polygonCenter(area.points),
+    polygonPoints: area.points,
+    element: area.element,
+    areaId: area.id,
+    variant: area.variant,
+    expiresIn: area.expiresAt ? Math.max(0, area.expiresAt - Date.now()) : null,
+    ...extra
+  });
+}
+
+// causerOwner: 'local' | 'opponent' | 'training' = chi ha lanciato la magia che ha provocato l'effetto
+function applyAreaEffect(area, effect, causerOwner) {
+  if (effect === 'remove') {
+    removeSpazialeAreaById(area.id);
+    return;
+  }
+
+  if (effect === 'lush' || effect === 'magma') {
+    area.variant = effect;
+    area.color = VARIANT_COLORS[effect];
+    area.expiresAt = Date.now() + (effect === 'lush' ? LUSH_DURATION_MS : MAGMA_DURATION_MS);
+    sendAreaUpdate(area);
+    return;
+  }
+
+  if (effect === 'ignite') {
+    const previousElement = area.element;
+    area.element = 'fuoco';
+    area.color = getElementColor('fuoco');
+
+    // L'area incendiata passa a chi ha lanciato il fuoco
+    if (causerOwner === 'opponent' && pvpManager && pvpManager.isActive()) {
+      permanentSpazialeAreas = permanentSpazialeAreas.filter(a => a.id !== area.id);
+      stopSpatialLoopIfUnused(previousElement);
+      pvpManager.registerOpponentArea({ id: area.id, points: area.points, element: 'fuoco' });
+      sendAreaUpdate(area, { giveToReceiver: true });
+    } else {
+      stopSpatialLoopIfUnused(previousElement);
+      audioManager.setSpatialSpellLoopPlaying('fuoco', true);
+      sendAreaUpdate(area);
+    }
+  }
+}
+
+// L'avversario ci cede un'area (la sua aria è stata incendiata dal nostro fuoco)
+function receiveGrantedArea(data) {
+  if (permanentSpazialeAreas.some(a => a.id === data.areaId)) return;
+  registerLocalArea({
+    id: data.areaId,
+    polygon: data.polygonPoints,
+    color: getElementColor(data.element),
+    element: data.element,
+    variant: data.variant,
+    expiresAt: data.expiresIn ? Date.now() + data.expiresIn : null
+  });
+}
+
+function applyProjectileEffect(projectile, effect) {
+  if (effect === 'remove' || effect === 'lush') {
+    projectile.hit = true; // sparisce al prossimo aggiornamento
+  } else if (effect === 'ignite') {
+    projectile.element = 'fuoco';
+    projectile.color = getElementColor('fuoco');
+  } else if (effect === 'magma') {
+    projectile.magma = true;
+  }
+}
+
+// Un proiettile che ENTRA in un'area interagisce con essa (una volta per ingresso)
+function updateProjectileAreaInteractions() {
+  const areas = [
+    ...permanentSpazialeAreas.map(area => ({ area, owner: 'local' })),
+    ...getOpponentAreas().map(area => ({ area, owner: 'opponent' }))
+  ];
+
+  for (const p of projectiles) {
+    if (p.hit) continue;
+    // Alla prima verifica registriamo solo dove si trova, senza considerarlo un ingresso
+    // (es. proiettile lanciato dall'interno di un'area)
+    const isFirstCheck = !p.inside;
+    if (isFirstCheck) p.inside = new Set();
+
+    for (const { area, owner } of areas) {
+      if (owner === 'local' && !permanentSpazialeAreas.includes(area)) continue; // rimossa nel frattempo
+      if (!pointInPolygon(p, area.points)) {
+        p.inside.delete(area.id);
+        continue;
+      }
+      if (p.inside.has(area.id)) continue;
+      p.inside.add(area.id);
+      if (isFirstCheck) continue;
+
+      const result = getInteraction(
+        { element: p.element },
+        { element: area.element, variant: area.variant }
+      );
+      if (result.a || result.b) {
+        applyProjectileEffect(p, result.a);
+        if (owner === 'local' && result.b) applyAreaEffect(area, result.b, p.owner);
+      } else if (blocksProjectiles(area)) {
+        p.hit = true; // la terra blocca ciò che non reagisce con lei
+      }
+      if (p.hit) break;
+    }
+  }
+}
+
+// Due proiettili di giocatori diversi che si incrociano interagiscono tra loro
+function updateProjectileCollisions() {
+  for (let i = 0; i < projectiles.length; i++) {
+    const a = projectiles[i];
+    if (a.hit) continue;
+    for (let j = i + 1; j < projectiles.length; j++) {
+      const b = projectiles[j];
+      if (b.hit || a.owner === b.owner) continue;
+      if (Math.hypot(a.x - b.x, a.y - b.y) > PROJECTILE_COLLISION_RADIUS) continue;
+
+      const result = getInteraction({ element: a.element }, { element: b.element });
+      if (!result.a && !result.b) continue;
+      applyProjectileEffect(a, result.a);
+      applyProjectileEffect(b, result.b);
+      if (a.hit) break;
+    }
+  }
+}
+
+function polygonBounds(points) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of points) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function polygonsOverlap(pointsA, pointsB) {
+  const a = polygonBounds(pointsA);
+  const b = polygonBounds(pointsB);
+  if (a.maxX < b.minX || b.maxX < a.minX || a.maxY < b.minY || b.maxY < a.minY) return false;
+  const anyInside = (from, into) => {
+    for (let i = 0; i < from.length; i += 3) {
+      if (pointInPolygon(from[i], into)) return true;
+    }
+    return false;
+  };
+  return anyInside(pointsA, pointsB) || anyInside(pointsB, pointsA);
+}
+
+// Aree che si sovrappongono: ognuno modifica solo le proprie, una sola volta per coppia
+function updateAreaInteractions() {
+  const mine = permanentSpazialeAreas.slice();
+  const theirs = getOpponentAreas().slice();
+
+  for (let i = 0; i < mine.length; i++) {
+    const a = mine[i];
+    const candidates = [
+      ...mine.slice(i + 1).map(area => ({ area, owner: 'local' })),
+      ...theirs.map(area => ({ area, owner: 'opponent' }))
+    ];
+
+    for (const { area: b, owner } of candidates) {
+      const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+      if (interactedAreaPairs.has(key)) continue;
+
+      const result = getInteraction(
+        { element: a.element, variant: a.variant },
+        { element: b.element, variant: b.variant }
+      );
+      if (!result.a && !result.b) continue;
+      if (!polygonsOverlap(a.points, b.points)) continue;
+
+      interactedAreaPairs.add(key);
+      if (result.a) applyAreaEffect(a, result.a, owner);
+      if (result.b && owner === 'local') applyAreaEffect(b, result.b, 'local');
+    }
+  }
+}
+
+// Magma: scia dei proiettili, scadenza delle aree trasformate e danno ai caster
+function updateMagma() {
+  const now = Date.now();
+
+  for (const p of projectiles) {
+    if (!p.magma || p.hit) continue;
+    p.trailTick = (p.trailTick || 0) + 1;
+    if (p.trailTick % 3 === 0) magmaTrail.push({ x: p.x, y: p.y, expiresAt: now + MAGMA_TRAIL_MS });
+  }
+  magmaTrail = magmaTrail.filter(t => t.expiresAt > now);
+
+  permanentSpazialeAreas
+    .filter(a => a.expiresAt && a.expiresAt <= now)
+    .forEach(a => removeSpazialeAreaById(a.id));
+
+  if (now - lastMagmaDamage < MAGMA_TICK_MS) return;
+  let damage = 0;
+  const magmaAreaActive = permanentSpazialeAreas.some(a => isVariantAlive(a, 'magma', now))
+    || getOpponentAreas().some(a => isVariantAlive(a, 'magma', now));
+  if (magmaAreaActive) damage += MAGMA_AREA_DAMAGE; // il magma in campo ferisce entrambi i caster
+  if (magmaTrail.some(t => Math.hypot(t.x - virtualMouse.x, t.y - virtualMouse.y) < MAGMA_TRAIL_RADIUS)) {
+    damage += MAGMA_TRAIL_DAMAGE;
+  }
+  if (damage > 0) {
+    lastMagmaDamage = now;
+    damageLocalPlayer(damage);
+  }
+}
+
+function updateMagicInteractions() {
+  updateProjectileAreaInteractions();
+  updateProjectileCollisions();
+  updateAreaInteractions();
+  updateMagma();
+}
+
+function drawMagmaTrail() {
+  if (magmaTrail.length === 0) return;
+  const now = Date.now();
+  ctx.save();
+  for (const t of magmaTrail) {
+    const life = Math.max(0, (t.expiresAt - now) / MAGMA_TRAIL_MS);
+    ctx.globalAlpha = 0.25 + 0.55 * life;
+    ctx.fillStyle = VARIANT_COLORS.magma;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, MAGMA_TRAIL_RADIUS * (0.5 + 0.5 * life), 0, 2 * Math.PI);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -1035,7 +1333,9 @@ function regenMana() {
       mana = manaMax * 0.2;
     }
   } else if (mana < manaMax) {
-    mana = Math.min(manaMax, mana + manaRecoverSpeed);
+    // Aree rigogliose in campo: rigenerazione aumentata per entrambi i caster
+    const regenMultiplier = isLushActive() ? LUSH_MANA_REGEN_MULTIPLIER : 1;
+    mana = Math.min(manaMax, mana + manaRecoverSpeed * regenMultiplier);
   }
   setManaValues({ current: mana, burnout: inBurnout, burnoutT: burnoutTimer });
 }
@@ -1335,7 +1635,9 @@ function animate() {
   drawMagicCircle();
   audioManager.setMagicCircleLoopPlaying(!!magicCircle);
   drawNextChargeParticles();
+  updateMagicInteractions();
   updateProjectiles();
+  drawMagmaTrail();
   drawSpazialePolygon();
   drawPermanentSpazialeAreas();
   updateSpazialeAreas();

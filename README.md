@@ -121,15 +121,25 @@ Proiezioni:
 
 ### INTERAZIONI magie:
 
-- se si passa una magia d’acqua su una magia in fiamme, essa si spegne dove passa la magia.
-- se si passa una magia di fuoco su una magia d’aria, essa si trasforma in fuoco (del player e non più dell’avversario in caso ci si trovi in Arena)
-- nessuna interazione Aria-Terra
-- se si passa una magia d’aria su una magia d’acqua, essa si dissolve
-- se si passa una magia di fulmine su una magia d’acqua, essa si carica di elettricità che danneggia entrambi i Caster
+- se si passa una magia d’acqua su una magia in fiamme (o viceversa), il fuoco si spegne dove passa la magia.
+- se si passa una magia di fuoco su una magia d’aria (o viceversa), l'aria si trasforma in fuoco (l'appartenenza della magia d'aria infuocata diventa del player che ha castato quella di fuoco)
+- se si passa una magia d’aria su una magia d’acqua (o viceversa), l'acqua si dissolve
+- se si passa una magia di fulmine su una magia d’acqua (o viceversa), essa si carica di elettricità che danneggia entrambi i Caster
 - Aria ignora Fulmine
-- Luce annulla Oscurità e viceversa (meme: in caso due laser di luce e oscurità si scontrano tra loro, i Caster rimangono ad evocarli come in Dragon Ball fino a quando il primo non termina mana)
-- se si passa una magia di acqua su una magia di terra, essa diverrà rigogliosa e permetterà una rigenerazione aumentata di mana ad entrambi i Caster
-- se si passa una magia di fuoco su una magia di terra, essa diverrà magma e arrecherà danno ad entrambi i Caster
+- Luce annulla Oscurità e viceversa (easter egg: in caso due laser di luce e oscurità si scontrano tra loro, i Caster rimangono ad evocarli come in Dragon Ball fino a quando il primo non termina mana. Animazione cinematica speciale)
+- se si passa una magia di acqua su una magia di terra (o viceversa), essa diverrà rigogliosa e permetterà una rigenerazione aumentata di mana ad entrambi i Caster
+- se si passa una magia di fuoco su una magia di terra (o viceversa), essa diverrà magma e arrecherà danno ad entrambi i Caster. Se è una proiezione, lascia dietro di sé una scia per 2.5 secondi.
+- le proiezioni di terra ignorano le magie spaziali di fulmine, ma le proiezioni di fulmine vengono bloccate dalle magie spaziali di terra
+- eccetto le interazioni precedentemente citate, la magia spaziale di terra blocca le proiezioni che entrano in contatto con essa
+- fulmine potenzia il danno delle magie di luce
+
+**Stato implementazione** (regole in `client/js/game/spell-interactions.js`, solo con gli elementi attuali; si applicano a proiettili e aree spaziali):
+
+- acqua spegne fuoco; fuoco incendia aria (l'area passa a chi ha lanciato il fuoco); aria dissolve acqua
+- acqua + terra = rigoglio (12 s, rigenerazione mana ×3 per entrambi); fuoco + terra = magma (5 s, danno a entrambi; i proiettili lasciano una scia di 2.5 s)
+- l'area di terra blocca i proiettili che non reagiscono con lei
+- extra: due proiettili avversari che si incrociano interagiscono tra loro; l'acqua raffredda il magma
+- l'esperienza si guadagna solo nelle partite PvP online (non in laboratorio né in training)
 
 IL MANA CHE SI POSSIEDE È LIMITATO ANCHE IN LABORATORIO.
 
@@ -149,6 +159,9 @@ se un proiettile infuso di un elemeno colpisce un avversario, questo avversario 
 - acqua: l'avversario è rallentato del 20% per 1.5 secondi
 - aria: i comandi dell'avversario (assi x e y) sono invertiti per 1.5 secondi
 - terra: l'avversario non può muoversi per 0.5 secondi ogni 0.5 secondi per 2 volte
+- fulmine: proiezione/laser: rimbalza su qualsiasi superficie (anche magie di terra); trappola/spaziale: paralizza l'avversario*
+
+Quando un player è paralizzato a causa di una magia di fulmine, può comunque castare in modalità "virtuale" (si può muovere per disegnare magie, ma il corpo non si muove)
 
 ### Consumo di mana:
 - Elementi: 1 mana
