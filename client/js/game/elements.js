@@ -1,7 +1,7 @@
 // elements.js - Elementi, proiezioni e colori condivisi da tutto il gioco
 
-export const ELEMENTS = ['fuoco', 'acqua', 'aria', 'terra'];
-export const PROJECTIONS = ['proiettile', 'spaziale'];
+export const ELEMENTS = ['fuoco', 'acqua', 'aria', 'terra', 'fulmine'];
+export const PROJECTIONS = ['proiettile', 'spaziale', 'laser'];
 
 export const ELEMENT_COLORS = {
   fuoco: '#ff5555',

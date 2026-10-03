@@ -37,6 +37,14 @@
       <div class="pattern-label">Terra</div>
     </div>
     <div class="pattern-box">
+      <canvas id="pat-fulmine" width="220" height="220"></canvas>
+      <div class="pattern-label">Fulmine</div>
+    </div>
+    <div class="pattern-box">
+      <canvas id="pat-laser" width="220" height="220"></canvas>
+      <div class="pattern-label">Laser</div>
+    </div>
+    <div class="pattern-box">
       <canvas id="pat-proiettile" width="220" height="220"></canvas>
       <div class="pattern-label">Proiettile</div>
     </div>
@@ -50,9 +58,12 @@
     </div>
   </div>
   <script type="module">
-    import { drawAllElementPatterns, drawProjectilePattern, drawMagicTrianglePattern, drawSpazialePattern } from '../js/game/element-patterns.js';
+    import { drawAllElementPatterns, drawProjectilePattern, drawMagicTrianglePattern, drawSpazialePattern, drawLaserPattern } from '../js/game/element-patterns.js';
     window.addEventListener('DOMContentLoaded', () => {
       drawAllElementPatterns();
+      // Disegna pattern laser
+      const cLaser = document.getElementById('pat-laser');
+      drawLaserPattern(cLaser.getContext('2d'), cLaser.width/2, cLaser.height/2, 90 / 0.3 * 0.9);
       // Disegna pattern proiettile
       const c = document.getElementById('pat-proiettile');
       if (c) {

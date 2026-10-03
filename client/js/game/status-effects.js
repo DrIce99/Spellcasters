@@ -40,6 +40,20 @@ export const ELEMENT_EFFECTS_CONFIG = {
         color: '#55aa55',
         description: 'Impossibile muoversi per 0.5s ogni 0.5s per 2 volte'
     }
+    // fulmine: i proiettili e i laser non danno effetti a chi colpiscono (rimbalzano);
+    // le aree paralizzano (vedi PARALYSIS_CONFIG)
+};
+
+// ⚡ Paralisi (aree di fulmine): il corpo resta fermo, ma il cursore si muove e si può disegnare.
+// Finita la paralisi c'è un breve periodo di immunità per poter uscire dall'area.
+export const PARALYSIS_CONFIG = {
+    name: 'Paralyzed',
+    type: 'paralysis',
+    duration: 1.5,
+    immunity: 1.5,
+    icon: '⚡',
+    color: '#ffff55',
+    description: 'Il corpo non si muove per 1.5s (si può comunque disegnare)'
 };
 
 // === CLASSI EFFETTI ===
@@ -225,6 +239,27 @@ class StunnedEffect extends StatusEffect {
     }
 }
 
+class ParalyzedEffect extends StatusEffect {
+    constructor(config, targetId) {
+        super(config, targetId);
+        this.nextParticleTime = 0;
+        StatusEffectManager.applyParalysis(targetId, true);
+    }
+
+    applyEffect(deltaTime) {
+        this.nextParticleTime -= deltaTime;
+        if (this.nextParticleTime <= 0) {
+            StatusEffectManager.showDebuffParticles(this.targetId, 'fulmine');
+            this.nextParticleTime = 0.08;
+        }
+    }
+
+    onDeactivate() {
+        StatusEffectManager.applyParalysis(this.targetId, false);
+        statusEffectManager.paralysisImmuneUntil.set(this.targetId, Date.now() + this.config.immunity * 1000);
+    }
+}
+
 // === MANAGER PRINCIPALE ===
 export class StatusEffectManager {
     constructor() {
@@ -233,7 +268,9 @@ export class StatusEffectManager {
         this.movementCallbacks = new Map();
         this.controlCallbacks = new Map();
         this.stunCallbacks = new Map();
+        this.paralysisCallbacks = new Map();
         this.visualCallbacks = new Map();
+        this.paralysisImmuneUntil = new Map(); // targetId -> timestamp
     }
 
     static showDebuffParticles(targetId, element) {
@@ -259,18 +296,30 @@ export class StatusEffectManager {
         this.stunCallbacks.set(targetId, callback);
     }
 
+    registerParalysisCallback(targetId, callback) {
+        this.paralysisCallbacks.set(targetId, callback);
+    }
+
     registerVisualCallback(targetId, callback) {
         this.visualCallbacks.set(targetId, callback);
     }
 
     // === APPLICAZIONE EFFETTI ===
     applyElementalEffect(element, targetId) {
+        // Elementi senza effetto all'impatto (es. fulmine): nessun effetto
         const config = ELEMENT_EFFECTS_CONFIG[element];
-        if (!config) {
-            console.warn(`Elemento ${element} non ha effetti configurati`);
-            return;
-        }
+        if (config) this.applyEffectConfig(config, targetId);
+    }
 
+    /** Paralizza il bersaglio, se non lo è già e non è nel periodo di immunità. @returns {boolean} */
+    applyParalysis(targetId) {
+        if (this.hasEffect(targetId, PARALYSIS_CONFIG.type)) return false;
+        if ((this.paralysisImmuneUntil.get(targetId) || 0) > Date.now()) return false;
+        this.applyEffectConfig(PARALYSIS_CONFIG, targetId);
+        return true;
+    }
+
+    applyEffectConfig(config, targetId) {
         // Rimuovi effetti dello stesso tipo per evitare stack
         this.removeEffectsByType(targetId, config.type);
 
@@ -287,6 +336,9 @@ export class StatusEffectManager {
                 break;
             case 'periodic_stun':
                 effect = new StunnedEffect(config, targetId);
+                break;
+            case 'paralysis':
+                effect = new ParalyzedEffect(config, targetId);
                 break;
             default:
                 console.warn(`Tipo di effetto ${config.type} non implementato`);
@@ -363,6 +415,12 @@ export class StatusEffectManager {
         if (callback) callback(stunned);
     }
 
+    static applyParalysis(targetId, paralyzed) {
+        const instance = statusEffectManager;
+        const callback = instance.paralysisCallbacks.get(targetId);
+        if (callback) callback(paralyzed);
+    }
+
     static showBurningEffect(targetId) {
         const instance = statusEffectManager;
         const callback = instance.visualCallbacks.get(targetId);
@@ -411,6 +469,10 @@ export const statusEffectManager = new StatusEffectManager();
 // === FUNZIONI DI UTILITÀ ===
 export function applyElementalHit(element, targetId) {
     statusEffectManager.applyElementalEffect(element, targetId);
+}
+
+export function applyParalysis(targetId) {
+    return statusEffectManager.applyParalysis(targetId);
 }
 
 export function updateStatusEffects(deltaTime) {
@@ -519,6 +581,24 @@ export function createElementalDebuffParticles(element, position, activeMagicPar
                     baseX: position.x,
                     baseY: position.y,
                     vibrateSpeed: Math.random() * 0.2 + 0.1
+                });
+            }
+            break;
+
+        case 'fulmine':
+            // Scintille che schizzano dal corpo paralizzato
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 2.5 + 1;
+                activeMagicParticles.push({
+                    x: position.x + Math.cos(angle) * 10,
+                    y: position.y + Math.sin(angle) * 10,
+                    radius: Math.random() * 1.5 + 1,
+                    alpha: 0.6 + Math.random() * 0.4,
+                    dx: Math.cos(angle) * speed,
+                    dy: Math.sin(angle) * speed,
+                    color: `rgba(255, 255, ${120 + Math.random() * 120}, `,
+                    element: 'fulmine'
                 });
             }
             break;

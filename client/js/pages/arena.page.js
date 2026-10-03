@@ -2,7 +2,7 @@
 import { getPlayerData } from '../services/player-db.js';
 import { WS_URL } from '../services/config.js';
 import { computePlayerStats, getCombatStats } from '../game/player-stats.js';
-import { initColorTheme, initUITheme } from '../ui/theme.js';
+import { initColorTheme } from '../ui/theme.js';
 
 class ArenaManager {
     constructor() {
@@ -393,5 +393,4 @@ class ArenaManager {
 }
 
 initColorTheme();
-initUITheme();
 new ArenaManager();

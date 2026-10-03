@@ -3,6 +3,7 @@
 //   aria  -> linee sottili orientate nel senso del movimento, come raffiche di vento
 //   fuoco -> lingue di fiamma: affusolate, più spesse al centro, rivolte verso l'alto
 //   terra -> schegge di roccia: piccoli poligoni irregolari
+//   fulmine -> scariche a zig-zag che sfarfallano
 //   nessun elemento (mana puro, danni, scia del disegno) -> cerchio
 //
 // Una particella ha almeno { x, y, radius, dx, dy } e opzionalmente `element`.
@@ -82,11 +83,31 @@ function drawShard(ctx, p) {
   ctx.fill();
 }
 
+// Fulmine: piccola scarica a zig-zag, che cambia forma a ogni frame (sfarfalla)
+function drawSpark(ctx, p) {
+  const angle = p.angle !== undefined ? p.angle : Math.random() * TWO_PI;
+  const len = p.radius * (p.angle !== undefined ? 5 : 3.5);
+  const ux = Math.cos(angle), uy = Math.sin(angle);
+  const px = -uy, py = ux;
+  const steps = 3;
+  ctx.beginPath();
+  ctx.moveTo(p.x - ux * len / 2, p.y - uy * len / 2);
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps - 0.5;
+    const side = i === steps ? 0 : (Math.random() - 0.5) * p.radius * 2.2;
+    ctx.lineTo(p.x + ux * len * t + px * side, p.y + uy * len * t + py * side);
+  }
+  ctx.lineWidth = Math.max(0.8, p.radius * 0.5);
+  ctx.strokeStyle = ctx.fillStyle;
+  ctx.stroke();
+}
+
 const SHAPES = {
   acqua: drawCircle,
   aria: drawWindStreak,
   fuoco: drawFlame,
-  terra: drawShard
+  terra: drawShard,
+  fulmine: drawSpark
 };
 
 /** Disegna la particella con la forma del suo elemento; fillStyle è già il colore con l'alpha corrente */

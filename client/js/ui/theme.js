@@ -1,4 +1,4 @@
-// theme.js - Gestione completa del sistema di temi (Colore e UI)
+// theme.js - Tema colore (giorno/notte) ed effetto hover dei pulsanti
 
 // --- Color Theme (Day/Night) ---
 let currentColorTheme = 'day';
@@ -52,55 +52,6 @@ window.addEventListener("keydown", (e) => {
 });
 
 
-// --- UI Theme (Classic/Rework) ---
-// Il tema Rework è ancora in sviluppo: viene applicato solo ai fogli di stile
-// marcati con l'attributo data-ui-theme (Home, Arena, Patch notes).
-let currentUITheme = 'classic';
-const UI_THEMES = {
-  classic: { name: 'Classic UI', suffix: '' },
-  rework: { name: 'Rework UI', suffix: '-rework' }
-};
-const uiThemeListeners = new Set();
-
-function setUITheme(mode) {
-  currentUITheme = mode === 'rework' ? 'rework' : 'classic';
-  localStorage.setItem('uiMode', currentUITheme);
-  applyUITheme(currentUITheme);
-  uiThemeListeners.forEach(listener => listener(currentUITheme));
-}
-
-function getUITheme() {
-  return currentUITheme;
-}
-
-function initUITheme() {
-  const saved = localStorage.getItem('uiMode');
-  setUITheme(saved === 'rework' ? 'rework' : 'classic');
-}
-
-// Scambia style-xxx.css <-> style-xxx-rework.css
-function applyUITheme(theme) {
-  const suffix = UI_THEMES[theme].suffix;
-  document.querySelectorAll('link[rel="stylesheet"][data-ui-theme]').forEach(link => {
-    const href = link.getAttribute('href');
-    const basePath = href.replace(/-rework\.css$/, '.css');
-    link.setAttribute('href', basePath.replace(/\.css$/, `${suffix}.css`));
-  });
-}
-
-// Crea un toggle DOM per cambiare tema UI
-function createUIThemeToggle() {
-  const btn = document.createElement('button');
-  const updateText = (theme) => {
-    btn.textContent = `Tema: ${UI_THEMES[theme].name}`;
-  };
-  updateText(currentUITheme);
-  btn.style.margin = '10px';
-  btn.onclick = () => setUITheme(currentUITheme === 'rework' ? 'classic' : 'rework');
-  uiThemeListeners.add(updateText);
-  return btn;
-}
-
 // --- Effetto hover dei pulsanti (usato dai CSS tramite --mouse-x/--mouse-y) ---
 document.addEventListener('mousemove', (e) => {
   if (e.target && e.target.tagName === 'BUTTON') {
@@ -125,10 +76,6 @@ export {
   onColorThemeChange,
   initColorTheme,
   createColorThemeToggle,
-  setUITheme,
-  getUITheme,
-  initUITheme,
-  createUIThemeToggle,
   DAY_COLOR,
   NIGHT_COLOR
 };

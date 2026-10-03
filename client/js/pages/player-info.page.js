@@ -5,7 +5,7 @@ import { getExpToNext } from '../game/progression.js';
 import {
   SKILLS, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, computePlayerStats, getSkillValue, isSkillMaxed, getAtkMultiplier
 } from '../game/player-stats.js';
-import { ELEMENTS, getElementColor } from '../game/elements.js';
+import { ELEMENTS, PROJECTIONS, getElementColor } from '../game/elements.js';
 
 initColorTheme();
 
@@ -22,12 +22,13 @@ function loadChartJs(callback) {
 }
 
 function getRadarDataAffinita(affinita) {
-  const elementi = ['fuoco', 'acqua', 'aria', 'terra'];
+  const elementi = ELEMENTS;
   const colori = {
     fuoco: '#ff5555',
     acqua: '#00eaff',
     aria: '#aaaaee',
-    terra: 'rgba(180,160,100)'
+    terra: 'rgba(180,160,100)',
+    fulmine: '#ffff55'
   };
   return {
     labels: elementi,
@@ -38,7 +39,7 @@ function getRadarDataAffinita(affinita) {
 
 function getRadarDataPredisposizione(predisposizione) {
   const tipi = Object.keys(predisposizione);
-  const labels = tipi.length > 0 ? tipi : ['proiettile', 'spaziale'];
+  const labels = tipi.length > 0 ? tipi : PROJECTIONS;
   return {
     labels,
     data: labels.map(t => predisposizione[t] || 0)
@@ -57,10 +58,19 @@ function getThemeColors() {
 
 let lastChartData = null;
 
+// Un canvas non si ridisegna quando arriva un font web: se i grafici partono prima che Cinzel
+// sia caricato, le etichette restano per sempre nel font di riserva. Si aspetta il font.
+function whenChartFontsReady() {
+  if (!document.fonts?.load) return Promise.resolve();
+  return document.fonts.load("600 14px 'Cinzel'").catch(() => {});
+}
+
 function renderRadarCharts(affinita, predisposizione) {
   lastChartData = { affinita, predisposizione };
   const theme = getThemeColors();
-  loadChartJs(() => {
+  loadChartJs(() => whenChartFontsReady().then(() => {
+    // Il resto dei testi di Chart.js (es. tooltip) usa il font della pagina
+    window.Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
     const data1 = getRadarDataAffinita(affinita);
     const data2 = getRadarDataPredisposizione(predisposizione);
     if (radarChart1) radarChart1.destroy();
@@ -115,7 +125,7 @@ function renderRadarCharts(affinita, predisposizione) {
         responsive: false
       }
     });
-  });
+  }));
 }
 
 function showError(message) {
@@ -228,7 +238,10 @@ function atkInfoRow(stats) {
       `(+${formatNumber(BASE_DAMAGE.proiettile * perPoint)} per punto ATK)`),
     makeElement('div', null,
       `Spaziale: ${formatNumber(BASE_DAMAGE.spaziale)} base → ${formatNumber(BASE_DAMAGE.spaziale * multiplier)} ` +
-      `ogni 0.5 s per ${SPATIAL_DAMAGE_AREA_UNIT} px² (+${formatNumber(BASE_DAMAGE.spaziale * perPoint)} per punto ATK)`)
+      `ogni 0.5 s per ${SPATIAL_DAMAGE_AREA_UNIT} px² (+${formatNumber(BASE_DAMAGE.spaziale * perPoint)} per punto ATK)`),
+    makeElement('div', null,
+      `Laser: ${formatNumber(BASE_DAMAGE.laser)} base → ${formatNumber(BASE_DAMAGE.laser * multiplier)} ` +
+      `ogni 0.5 s a contatto (+${formatNumber(BASE_DAMAGE.laser * perPoint)} per punto ATK)`)
   );
   return li;
 }

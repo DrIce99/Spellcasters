@@ -1,10 +1,9 @@
 // version.page.js - Pagina delle patch notes (dati in data/changelog.js)
-import { initColorTheme, initUITheme } from '../ui/theme.js';
+import { initColorTheme } from '../ui/theme.js';
 import { startFogBackground } from '../ui/fog-background.js';
 import { CHANGELOG, CHANGE_TYPES, CURRENT_VERSION } from '../data/changelog.js';
 
 initColorTheme();
-initUITheme();
 
 document.getElementById('home-btn').addEventListener('click', () => {
     window.location.href = '/home.html';

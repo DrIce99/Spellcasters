@@ -11,6 +11,35 @@ export const CHANGE_TYPES = {
 
 export const CHANGELOG = [
   {
+    version: '0.11.0',
+    date: '2026-10-03',
+    title: 'Fulmine e Laser',
+    changes: {
+      feature: [
+        'Nuovo elemento: Fulmine (zig-zag dall\'alto verso il basso). I suoi proiettili e laser rimbalzano sui bordi e sulle aree di terra, le sue aree paralizzano',
+        'Paralisi: il corpo resta fermo ma il cursore si muove e si può continuare a disegnare',
+        'Nuova proiezione: Laser (linea avanti, indietro e di nuovo avanti, in qualsiasi direzione). Magia permanente: consuma mana ogni 0.1 s e si annulla con il tasto destro',
+        'Interazioni: il fulmine elettrifica l\'acqua (danno a entrambi i caster), l\'aria lo ignora; i laser interagiscono con proiettili, aree e altri laser',
+        'Effetti sonori delle magie dell\'avversario (proiettili, elementi, aree, laser e cerchio magico)',
+        'Effetti sonori del laser per elemento (compreso il fuoco) e del fulmine (evocazione, proiettile e rimbalzo)'
+      ],
+      rework: [
+        'Nuova grafica del cerchio magico del fulmine, della carica laser e del raggio laser',
+        'Rimosso il tema sperimentale "Rework UI": resta solo quello classico (con giorno/notte)'
+      ],
+      logic: [
+        'Il proiettile si riconosce in qualsiasi direzione, non solo nelle 8 principali'
+      ],
+      fix: [
+        'Il cerchio magico si riconosce anche se disegnato partendo dal basso, in entrambi i sensi',
+        'Proiettili, mana ed effetti di stato vanno alla stessa velocità con qualsiasi frequenza dello schermo (prima a 144 Hz andavano più veloci)',
+        'Il proiettile dell\'avversario ha le stesse particelle di lancio del proprio',
+        'Un\'area ceduta (aria incendiata) non lascia più una copia "fantasma" non annullabile all\'avversario',
+        'Info Giocatore: le etichette dei grafici restavano in un altro font se il font del gioco arrivava in ritardo'
+      ]
+    }
+  },
+  {
     version: '0.10.0',
     date: '2026-10-01',
     title: 'Statistiche',

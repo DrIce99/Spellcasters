@@ -2,7 +2,7 @@
 import { VirtualMouseEntity, globalCollisionSystem } from "./collision-system.js";
 import { triggerCameraShake, updateRedOverlay } from './damage-effects.js';
 import { drawProjectilePolygonPattern, drawElementPattern } from "./element-patterns.js";
-import { applyElementalHit, statusEffectManager, createElementalDebuffParticles } from './status-effects.js';
+import { applyElementalHit, applyParalysis, statusEffectManager, createElementalDebuffParticles } from './status-effects.js';
 import { audioManager } from './audio-manager.js';
 import { getElementColor, getOpponentElementColor } from './elements.js';
 import { VARIANT_COLORS } from './spell-interactions.js';
@@ -28,9 +28,11 @@ export class PvPManager {
         this.playerRole = null; // 'player1' o 'player2'
         this.opponentData = null;
 
-        // Riferimenti allo stato di engine.js (aggiornati a ogni frame)
+        // Riferimenti allo stato di engine.js (aggiornati a ogni frame).
+        // playerBody è ciò che viene colpito: coincide con virtualMouse tranne durante la paralisi
         this.gameHooks = {
             virtualMouse: null,
+            playerBody: null,
             projectiles: null,
             magicCircle: null,
             playerHealth: 100,
@@ -49,9 +51,15 @@ export class PvPManager {
         };
         this.opponentEntity = null;
         this.opponentSpazialeAreas = []; // { id, points, element, variant, expiresAt }
+        this.opponentLasers = [];        // { id, origin, dir, element, variant, expiresAt, damagePerTick, path }
         this.activeSpatialIntervals = {};
         this.opponentCircleRotation = 0;
-        this.onAreaGranted = null; // impostata da engine.js: l'avversario ci cede un'area
+        // Impostate da engine.js
+        this.onSpellGranted = null;       // l'avversario ci cede un'area o un laser
+        this.ownsSpell = null;            // (id) => true se l'area/il laser è nostro
+        this.onOpponentProjectile = null; // crea il proiettile dell'avversario (con particelle e suono)
+        this.onOpponentElement = null;    // elemento evocato a vuoto dall'avversario
+        this.onOpponentLaserCast = null;  // nuovo laser dell'avversario (particelle e suono)
         this.shaderFillsAreas = false; // true = il riempimento delle aree lo disegna lo shader WebGL
 
         this.lastUpdateSent = 0;
@@ -221,7 +229,8 @@ export class PvPManager {
                 this.handleOpponentSpell(data);
                 break;
             case 'opponentSpellRemoval':
-                this.removeOpponentArea(data.areaId);
+                if (data.spellType === 'laser') this.removeOpponentLaser(data.areaId);
+                else this.removeOpponentArea(data.areaId);
                 break;
             case 'projectileHit':
                 this.handleProjectileHit(data);
@@ -288,12 +297,12 @@ export class PvPManager {
     }
 
     getRandomElement() {
-        const elements = ['fuoco', 'acqua', 'aria', 'terra'];
+        const elements = ['fuoco', 'acqua', 'aria', 'terra', 'fulmine'];
         return elements[Math.floor(Math.random() * elements.length)];
     }
 
     getRandomProjectionType() {
-        const types = ['proiettile', 'spaziale'];
+        const types = ['proiettile', 'spaziale', 'laser'];
         return types[Math.floor(Math.random() * types.length)];
     }
 
@@ -418,7 +427,7 @@ export class PvPManager {
         });
 
         statusEffectManager.registerVisualCallback('player', (effectType, element) => {
-            const position = this.gameHooks.virtualMouse;
+            const position = this.gameHooks.playerBody || this.gameHooks.virtualMouse;
             if (!position) return;
             if (effectType === 'debuff_particles') {
                 createElementalDebuffParticles(element, position, this.gameHooks.activeMagicParticles);
@@ -430,9 +439,9 @@ export class PvPManager {
         // Gli effetti sull'avversario sono solo visivi: la sua vita la gestisce il suo client
         statusEffectManager.registerVisualCallback('opponent', (effectType, element) => {
             if (effectType === 'debuff_particles') {
-                createElementalDebuffParticles(element, this.opponent.virtualMouse, this.gameHooks.activeMagicParticles);
+                createElementalDebuffParticles(element, this.opponent.position, this.gameHooks.activeMagicParticles);
             } else if (effectType === 'burning') {
-                this.createBurningParticles(this.opponent.virtualMouse);
+                this.createBurningParticles(this.opponent.position);
             }
         });
     }
@@ -482,46 +491,52 @@ export class PvPManager {
     // ------------------------------------------------------------
 
     handleOpponentMove(data) {
-        const prevPosition = { ...this.opponent.virtualMouse };
+        const prevPosition = { ...this.opponent.position };
         this.opponent.virtualMouse = data.virtualMouse;
         this.opponent.position = data.position || data.virtualMouse;
 
+        // L'entità che collide è il corpo (position), che durante la paralisi resta fermo
         if (this.opponentEntity) {
-            this.opponentEntity.x = this.opponent.virtualMouse.x;
-            this.opponentEntity.y = this.opponent.virtualMouse.y;
+            this.opponentEntity.x = this.opponent.position.x;
+            this.opponentEntity.y = this.opponent.position.y;
             // Velocità amplificata per rendere visibili le collisioni
-            this.opponentEntity.velocity.x = (this.opponent.virtualMouse.x - prevPosition.x) * 2;
-            this.opponentEntity.velocity.y = (this.opponent.virtualMouse.y - prevPosition.y) * 2;
+            this.opponentEntity.velocity.x = (this.opponent.position.x - prevPosition.x) * 2;
+            this.opponentEntity.velocity.y = (this.opponent.position.y - prevPosition.y) * 2;
         }
     }
 
     handleOpponentProjectile(data) {
-        this.gameHooks.projectiles?.push({
-            x: data.start.x,
-            y: data.start.y,
-            vx: data.velocity.x,
-            vy: data.velocity.y,
-            life: data.maxLife || 120,
-            alpha: 1,
-            color: data.color || 'rgba(255, 100, 100,',
-            tipo: data.tipo || 'proiettile',
-            owner: 'opponent',
-            element: data.element || null
-        });
+        this.onOpponentProjectile?.(data);
     }
 
     handleOpponentSpell(data) {
-        if (data.spellType !== 'spaziale' || !data.polygonPoints) {
+        if (data.spellType === 'elemento') {
+            this.onOpponentElement?.(data);
+            return;
+        }
+        const isLaser = data.spellType === 'laser';
+        if ((data.spellType !== 'spaziale' && !isLaser) || !data.polygonPoints) {
             if (data.position) this.createOpponentSpellEffect(data.position);
             return;
         }
 
-        const spellId = data.areaId || `spaziale_${data.timestamp}`;
+        const spellId = data.areaId || `${data.spellType}_${data.timestamp}`;
 
-        // L'avversario ci cede un'area (es. la sua aria incendiata dal nostro fuoco)
+        // Le magie permanenti le modifica solo il proprietario. Un messaggio su una magia che è
+        // già nostra (es. aggiornamento partito prima che ce la cedesse) è vecchio: si ignora,
+        // altrimenti avremmo una copia "fantasma" dell'avversario sopra la nostra.
+        if (this.ownsSpell?.(spellId)) return;
+
+        // L'avversario ci cede la magia (es. la sua aria incendiata dal nostro fuoco)
         if (data.giveToReceiver) {
-            this.removeOpponentArea(spellId);
-            this.onAreaGranted?.(data);
+            if (isLaser) this.removeOpponentLaser(spellId);
+            else this.removeOpponentArea(spellId);
+            this.onSpellGranted?.(data);
+            return;
+        }
+
+        if (isLaser) {
+            this.handleOpponentLaser(spellId, data);
             return;
         }
 
@@ -532,7 +547,7 @@ export class PvPManager {
             existing.variant = data.variant || null;
             existing.expiresAt = data.expiresIn ? Date.now() + data.expiresIn : null;
             if (data.damagePerTick > 0) existing.damagePerTick = data.damagePerTick;
-            if (data.magmaAtk > 0) existing.magmaAtk = data.magmaAtk;
+            if (data.magmaAtk > 0) existing.variantAtk = data.magmaAtk;
             return;
         }
 
@@ -543,13 +558,60 @@ export class PvPManager {
             variant: data.variant,
             expiresIn: data.expiresIn,
             damagePerTick: data.damagePerTick,
-            magmaAtk: data.magmaAtk
+            variantAtk: data.magmaAtk
         });
+    }
+
+    // Laser: position = origine, polygonPoints = [origine, un punto lungo la direzione]
+    handleOpponentLaser(id, data) {
+        const existing = this.opponentLasers.find(laser => laser.id === id);
+        if (existing) {
+            existing.element = data.element || null;
+            existing.variant = data.variant || null;
+            existing.expiresAt = data.expiresIn ? Date.now() + data.expiresIn : null;
+            if (data.damagePerTick > 0) existing.damagePerTick = data.damagePerTick;
+            if (data.magmaAtk > 0) existing.variantAtk = data.magmaAtk;
+            return;
+        }
+        const [origin, through] = data.polygonPoints;
+        const length = Math.hypot(through.x - origin.x, through.y - origin.y) || 1;
+        const laser = this.registerOpponentLaser({
+            id,
+            origin,
+            dir: { x: (through.x - origin.x) / length, y: (through.y - origin.y) / length },
+            element: data.element || null,
+            variant: data.variant || null,
+            expiresIn: data.expiresIn,
+            damagePerTick: data.damagePerTick,
+            variantAtk: data.magmaAtk
+        });
+        this.onOpponentLaserCast?.(laser);
+    }
+
+    // Il danno di chi tocca il raggio lo calcola engine.js (che conosce il percorso del laser)
+    registerOpponentLaser({ id, origin, dir, element = null, variant = null, expiresIn = null, damagePerTick = null, variantAtk = null }) {
+        const laser = {
+            id,
+            origin,
+            dir,
+            element,
+            variant,
+            expiresAt: expiresIn ? Date.now() + expiresIn : null,
+            variantAtk,
+            damagePerTick: damagePerTick > 0 ? damagePerTick : BASE_DAMAGE.laser,
+            path: []
+        };
+        this.opponentLasers.push(laser);
+        return laser;
+    }
+
+    removeOpponentLaser(id) {
+        this.opponentLasers = this.opponentLasers.filter(laser => laser.id !== id);
     }
 
     // Aggiunge un'area avversaria, con il danno periodico per chi resta dentro.
     // damagePerTick lo calcola chi lancia l'area (dipende dal suo ATK); se manca si usa il valore base.
-    registerOpponentArea({ id, points, element = null, variant = null, expiresIn = null, damagePerTick = null, magmaAtk = null }) {
+    registerOpponentArea({ id, points, element = null, variant = null, expiresIn = null, damagePerTick = null, variantAtk = null }) {
         if (this.activeSpatialIntervals[id]) return;
         this.opponentSpazialeAreas.push({
             id,
@@ -557,7 +619,7 @@ export class PvPManager {
             element,
             variant,
             expiresAt: expiresIn ? Date.now() + expiresIn : null,
-            magmaAtk,
+            variantAtk,
             damagePerTick: damagePerTick > 0
                 ? damagePerTick
                 : BASE_DAMAGE.spaziale * (this.calculatePolygonArea(points) / SPATIAL_DAMAGE_AREA_UNIT)
@@ -575,10 +637,12 @@ export class PvPManager {
             // Le aree trasformate (rigogliose / magma) hanno effetti propri: niente danno da area
             const area = this.opponentSpazialeAreas.find(a => a.id === id);
             if (!area || area.variant) return;
-            const playerPos = this.gameHooks.virtualMouse;
+            const playerPos = this.gameHooks.playerBody || this.gameHooks.virtualMouse;
             if (playerPos && this.isPointInPolygon(playerPos, points)) {
                 const element = area.element === 'spaziale' ? null : area.element;
                 this.applyDamage(applyElementDefense(area.damagePerTick, this.playerStats, element));
+                // ⚡ L'area di fulmine paralizza chi ci sta dentro (il corpo si ferma, il cursore no)
+                if (element === 'fulmine') applyParalysis('player');
             }
         }, 500);
     }
@@ -695,16 +759,18 @@ export class PvPManager {
         if (this.matchState !== 'active') return;
 
         this.gameHooks.virtualMouse = gameState.virtualMouse;
+        this.gameHooks.playerBody = gameState.playerBody;
         this.gameHooks.projectiles = gameState.projectiles;
         this.gameHooks.magicCircle = gameState.magicCircle;
         this.gameHooks.activeMagicParticles = gameState.activeMagicParticles;
 
         const now = Date.now();
         if (now - this.lastUpdateSent > this.updateInterval) {
+            const body = gameState.playerBody || gameState.virtualMouse;
             this.send({
                 type: 'playerMove',
                 virtualMouse: { x: gameState.virtualMouse.x, y: gameState.virtualMouse.y },
-                position: { x: gameState.virtualMouse.x, y: gameState.virtualMouse.y }
+                position: { x: body.x, y: body.y }
             });
             this.lastUpdateSent = now;
         }
@@ -744,7 +810,7 @@ export class PvPManager {
 
             if (projectile.owner === 'opponent') {
                 // Colpito dall'avversario: qui solo feedback visivo (il danno arriva dal server)
-                if (this.isProjectileHitting(projectile, this.gameHooks.virtualMouse)) {
+                if (this.isProjectileHitting(projectile, this.gameHooks.playerBody || this.gameHooks.virtualMouse)) {
                     projectile.hit = true;
                     this.showDamageEffect(true);
                     triggerCameraShake(10, 250);
@@ -771,7 +837,8 @@ export class PvPManager {
 
     // Danno "lordo" (ATK, elemento, bonus danno): la difesa del bersaglio la applica il server
     calculateDamage(projectile) {
-        const multiplierByElement = { fuoco: 1.1, acqua: 1.2, aria: 1.2, terra: 1.4 };
+        // Il fulmine non ha moltiplicatore: in compenso rimbalza (più occasioni di colpire)
+        const multiplierByElement = { fuoco: 1.1, acqua: 1.2, aria: 1.2, terra: 1.4, fulmine: 1 };
         const baseDamage = this.playerStats.damage.proiettile;
         const dmgBonus = this.playerStats.elementDmgBonus[projectile.element] || 0;
         const damage = baseDamage * (multiplierByElement[projectile.element] || 1) * (1 + dmgBonus);
@@ -798,6 +865,7 @@ export class PvPManager {
         this.opponentSpazialeAreas
             .filter(area => area.expiresAt && area.expiresAt <= now)
             .forEach(area => this.removeOpponentArea(area.id));
+        this.opponentLasers = this.opponentLasers.filter(laser => !laser.expiresAt || laser.expiresAt > now);
     }
 
     drawOpponentSpazialeAreas(ctx) {
@@ -823,13 +891,23 @@ export class PvPManager {
         ctx.restore();
     }
 
-    // Mouse virtuale dell'avversario: come quello del giocatore ma rosso
+    // Mouse virtuale dell'avversario: come quello del giocatore ma rosso.
+    // Se è paralizzato il corpo (position) resta fermo e il cursore si vede in trasparenza
     drawOpponent(ctx) {
-        const pos = this.opponent.virtualMouse;
+        const body = this.opponent.position;
+        const cursor = this.opponent.virtualMouse;
+        this.drawReticle(ctx, body, "#ff4444", 1);
+        if (Math.hypot(cursor.x - body.x, cursor.y - body.y) > 2) {
+            this.drawReticle(ctx, cursor, "#ff4444", 0.4);
+        }
+    }
+
+    drawReticle(ctx, pos, color, alpha) {
         ctx.save();
+        ctx.globalAlpha = alpha;
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, 12, 0, 2 * Math.PI);
-        ctx.strokeStyle = "#ff4444";
+        ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.beginPath();
@@ -971,6 +1049,7 @@ export class PvPManager {
         Object.values(this.activeSpatialIntervals).forEach(clearInterval);
         this.activeSpatialIntervals = {};
         this.opponentSpazialeAreas = [];
+        this.opponentLasers = [];
 
         localStorage.removeItem('currentMatchData');
         if (this.healthPersistenceKey) localStorage.removeItem(this.healthPersistenceKey);

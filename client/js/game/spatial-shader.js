@@ -121,6 +121,26 @@ void main() {
     float glow = 0.6 + 0.4 * sin(t * 3.0 + v.x * 6.0);
     col = mix(vec3(0.12, 0.04, 0.02), vec3(1.0, 0.45, 0.05) * glow, crack);
     alpha = 0.55 + 0.35 * crack;
+  } else if (u_type == 7) {
+    // FULMINE: scariche che guizzano a scatti su un fondo viola scuro
+    float tq = floor(t * 12.0);
+    vec2 uv = v_world / 60.0;
+    float n = fbm(uv * 1.3 + vec2(hash(vec2(tq, 1.7)), hash(vec2(tq, 7.1))) * 10.0);
+    float n2 = fbm(uv * 2.1 - vec2(tq * 0.37, tq * 0.21));
+    float arc = max(1.0 - smoothstep(0.0, 0.025, abs(n - 0.5)),
+                    0.7 * (1.0 - smoothstep(0.0, 0.018, abs(n2 - 0.5))));
+    float glow = fbm(uv * 0.6 + t * 0.2);
+    col = mix(vec3(0.15, 0.12, 0.35) * (0.6 + 0.6 * glow), vec3(1.0, 1.0, 0.6), arc);
+    alpha = 0.2 + 0.7 * arc + 0.1 * glow;
+  } else if (u_type == 8) {
+    // ELETTRIFICATA: acqua attraversata da scariche
+    float tq = floor(t * 10.0);
+    vec2 p = v_world / 55.0;
+    float n = fbm(p * 1.5 + vec2(hash(vec2(tq, 3.3)) * 8.0, tq * 0.13));
+    float arc = 1.0 - smoothstep(0.0, 0.03, abs(n - 0.5));
+    float depth = fbm(v_world / 120.0 + t * 0.1);
+    col = mix(vec3(0.1, 0.45, 0.75) * (0.7 + 0.5 * depth), vec3(0.9, 1.0, 1.0), arc);
+    alpha = 0.35 + 0.55 * arc;
   } else {
     // MANA PURO: griglia arcana che pulsa a onde
     vec2 uv = v_world / 40.0;
@@ -136,7 +156,7 @@ void main() {
   gl_FragColor = vec4(col * alpha, alpha);
 }`;
 
-const SHADER_TYPES = { spaziale: 0, fuoco: 1, acqua: 2, aria: 3, terra: 4, lush: 5, magma: 6 };
+const SHADER_TYPES = { spaziale: 0, fuoco: 1, acqua: 2, aria: 3, terra: 4, lush: 5, magma: 6, fulmine: 7, charged: 8 };
 
 function hexToRgb(hex) {
   const h = (hex || '#00e0ff').replace('#', '');

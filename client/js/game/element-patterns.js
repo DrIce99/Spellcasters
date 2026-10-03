@@ -213,40 +213,7 @@ export function drawElementPattern(ctx, x, y, r, element, colorOverride = null) 
     ctx.lineWidth = 3;
     strokeCircle(ctx, r * 0.97, 1);
   }
-  if (element === 'fulmine') {
-    const c = colorOverride || '#ffff55';
-    // Raggi a zigzag
-    for (let i = 0; i < 12; i++) {
-      ctx.save();
-      ctx.rotate((Math.PI * 2 / 12) * i);
-      ctx.beginPath();
-      ctx.moveTo(r * 0.2, 0);
-      for (let j = 1; j <= 8; j++) {
-        ctx.lineTo(r * (0.2 + j * 0.08), (j % 2 === 0) ? r * 0.03 : -r * 0.03);
-      }
-      ctx.strokeStyle = c;
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.8;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.restore();
-    }
-    // Cerchio centrale
-    ctx.strokeStyle = c;
-    ctx.lineWidth = 3;
-    strokeCircle(ctx, r * 0.15, 1);
-    // Archi elettrici
-    for (let i = 0; i < 6; i++) {
-      let angle = (Math.PI * 2 / 6) * i;
-      ctx.beginPath();
-      ctx.arc(Math.cos(angle) * r * 0.6, Math.sin(angle) * r * 0.6, r * 0.1, 0, 2 * Math.PI);
-      ctx.strokeStyle = c;
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.7;
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-  }
+  if (element === 'fulmine') drawFulminePattern(ctx, r, colorOverride);
   if (element === 'luce') {
     const c = colorOverride || '#ffffff';
     // Raggi alternati spessi/sottili
@@ -289,6 +256,112 @@ function strokeCircle(ctx, radius, alpha) {
   ctx.globalAlpha = alpha;
   ctx.stroke();
   ctx.globalAlpha = 1;
+}
+
+// Saetta stilizzata (⚡) in coordinate locali: parte da `from` e punta verso +x per `length`
+function boltPath(ctx, from, length, width) {
+  // Classica saetta in un riquadro unitario: u = lungo l'asse (0 = base, 1 = punta), v = di traverso (-0.5..0.5)
+  const shape = [
+    [0, -0.05], [0, 0.35], [0.42, 0.05], [0.42, 0.3], [1, -0.25], [0.55, -0.05], [0.55, -0.32]
+  ];
+  ctx.beginPath();
+  shape.forEach(([u, v], i) => {
+    const x = from + u * length, y = v * width;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+}
+
+// Fulmine: sei saette che partono da un esagono centrale, un anello "a molla" elettrico e un alone giallo
+function drawFulminePattern(ctx, r, colorOverride) {
+  const c = colorOverride || '#ffff55';
+  const glow = colorOverride || '#fff27a';
+
+  // Alone radiale
+  const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  grad.addColorStop(0, colorOverride ? colorOverride + '55' : 'rgba(255, 253, 220, 0.55)');
+  grad.addColorStop(0.45, colorOverride ? colorOverride + '22' : 'rgba(255, 238, 85, 0.22)');
+  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.95, 0, 2 * Math.PI);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.strokeStyle = c;
+
+  // Anello "a molla": zig-zag continuo lungo una circonferenza
+  ctx.beginPath();
+  const teeth = 60;
+  for (let i = 0; i <= teeth; i++) {
+    const a = (Math.PI * 2 / teeth) * i;
+    const rad = r * (i % 2 === 0 ? 0.6 : 0.68);
+    if (i === 0) ctx.moveTo(Math.cos(a) * rad, Math.sin(a) * rad);
+    else ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+  }
+  ctx.lineWidth = 1.2;
+  ctx.globalAlpha = 0.45;
+  ctx.stroke();
+
+  // Raggi sottili verso i nodi tra una saetta e l'altra
+  ctx.globalAlpha = 0.45;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI * 2 / 6) * i + Math.PI / 6;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * r * 0.27, Math.sin(a) * r * 0.27);
+    ctx.lineTo(Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Nodi sull'anello esterno
+  ctx.fillStyle = c;
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI * 2 / 6) * i + Math.PI / 6;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * r * 0.82, Math.sin(a) * r * 0.82, r * 0.035, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  // Sei saette rivolte verso l'esterno
+  for (let i = 0; i < 6; i++) {
+    ctx.save();
+    ctx.rotate((Math.PI * 2 / 6) * i);
+    boltPath(ctx, r * 0.3, r * 0.56, r * 0.3);
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = glow;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1.8;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Esagono centrale con un cerchio inscritto
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI * 2 / 6) * i + Math.PI / 6;
+    const x = Math.cos(a) * r * 0.27, y = Math.sin(a) * r * 0.27;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.lineWidth = 1.5;
+  strokeCircle(ctx, r * 0.17, 0.8);
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.06, 0, 2 * Math.PI);
+  ctx.fillStyle = c;
+  ctx.fill();
+
+  // Cerchi esterni
+  ctx.lineWidth = 1;
+  strokeCircle(ctx, r * 0.88, 0.6);
+  ctx.lineWidth = 3;
+  strokeCircle(ctx, r * 0.97, 1);
 }
 
 // Pattern cerchio magico proiettile (fucsia, anello, interno libero)
@@ -464,9 +537,11 @@ export function drawAllElementPatterns() {
     ['pat-fuoco', 'fuoco'],
     ['pat-aria', 'aria'],
     ['pat-acqua', 'acqua'],
-    ['pat-terra', 'terra']
+    ['pat-terra', 'terra'],
+    ['pat-fulmine', 'fulmine']
   ].forEach(([id, el]) => {
     const c = document.getElementById(id);
+    if (!c) return;
     const ctx = c.getContext('2d');
     drawElementPattern(ctx, c.width/2, c.height/2, 90, el);
   });
@@ -494,6 +569,8 @@ export function drawProjectilePolygonPattern(ctx, x, y, r, count, color = "#ff33
     const tipo = Array.isArray(tipi) ? tipi[i] : tipi;
     if (tipo === "spaziale") {
       drawSpazialePattern(ctx, v.x, v.y, r, color, 0);
+    } else if (tipo === "laser") {
+      drawLaserPattern(ctx, v.x, v.y, r, color);
     } else {
       drawProjectilePattern(ctx, v.x, v.y, r, color);
     }
@@ -518,6 +595,91 @@ export function drawProjectilePolygonPattern(ctx, x, y, r, count, color = "#ff33
     ctx.globalAlpha = 1;
   }
 
+  ctx.restore();
+}
+
+// Pattern per la proiezione permanente "laser": una lente a mandorla con l'iride al centro,
+// attraversata dal raggio, con due frecce che indicano l'emissione
+export function drawLaserPattern(ctx, x, y, r, color = "#ff33cc", rotation = 0) {
+  const R = r * 0.3;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Anello esterno e anello interno sottile
+  ctx.lineWidth = 1.7;
+  ctx.beginPath();
+  ctx.arc(0, 0, R * 0.95, 0, 2 * Math.PI);
+  ctx.stroke();
+  ctx.globalAlpha = 0.5;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(0, 0, R * 0.8, 0, 2 * Math.PI);
+  ctx.stroke();
+
+  // Piccoli punti magici sull'anello (come negli altri pattern di proiezione)
+  ctx.globalAlpha = 0.7;
+  for (let i = 0; i < 12; i++) {
+    if (i % 6 === 0) continue; // lasciano spazio al raggio
+    const a = (Math.PI * 2 / 12) * i;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * R * 0.95, Math.sin(a) * R * 0.95, 1.6, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+
+  // Lente a mandorla: due archi che si incontrano sull'asse del raggio
+  const half = R * 0.72;      // semi-larghezza della mandorla
+  const bulge = R * 0.34;     // semi-altezza
+  const arcR = (half * half + bulge * bulge) / (2 * bulge);
+  const arcA = Math.asin(half / arcR);
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(0, arcR - bulge, arcR, -Math.PI / 2 - arcA, -Math.PI / 2 + arcA);
+  ctx.arc(0, -(arcR - bulge), arcR, Math.PI / 2 - arcA, Math.PI / 2 + arcA);
+  ctx.closePath();
+  ctx.globalAlpha = 0.18;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.stroke();
+
+  // Iride e nucleo
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(0, 0, R * 0.24, 0, 2 * Math.PI);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, R * 0.1, 0, 2 * Math.PI);
+  ctx.fill();
+
+  // Raggio che attraversa la lente, con un alone
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 8;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(-R * 0.95, 0);
+  ctx.lineTo(-R * 0.26, 0);
+  ctx.moveTo(R * 0.26, 0);
+  ctx.lineTo(R * 0.95, 0);
+  ctx.stroke();
+  ctx.restore();
+
+  // Frecce verso l'esterno: il raggio "esce" dalla lente
+  ctx.lineWidth = 1.3;
+  for (const side of [-1, 1]) {
+    const tip = side * R * 0.62;
+    const back = side * R * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(back, -R * 0.13);
+    ctx.lineTo(tip, 0);
+    ctx.lineTo(back, R * 0.13);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 

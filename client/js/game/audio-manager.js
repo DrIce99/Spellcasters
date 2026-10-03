@@ -89,7 +89,25 @@ class AudioManager {
             DRAW_40: 'draw_40',
             CLOCK: 'clock_sound',
             START_1: 'start_1',
-            START_2: 'start_2'
+            START_2: 'start_2',
+            PROJECTILE_FULMINE: 'projectile_fulmine',
+            SPELL_FULMINE: 'spell_fulmine',
+            // Laser: per ogni elemento un "init" (con l'attacco) seguito senza stacchi dal loop "cont"
+            LASER_INIT_NEUTRAL: 'laser_init_neutral',
+            LASER_CONT_NEUTRAL: 'laser_cont_neutral',
+            LASER_INIT_FUOCO: 'laser_init_fuoco',
+            LASER_CONT_FUOCO: 'laser_cont_fuoco',
+            LASER_INIT_ACQUA: 'laser_init_acqua',
+            LASER_CONT_ACQUA: 'laser_cont_acqua',
+            LASER_INIT_ARIA: 'laser_init_aria',
+            LASER_CONT_ARIA: 'laser_cont_aria',
+            LASER_INIT_TERRA: 'laser_init_terra',
+            LASER_CONT_TERRA: 'laser_cont_terra',
+            LASER_INIT_FULMINE: 'laser_init_fulmine',
+            LASER_CONT_FULMINE: 'laser_cont_fulmine',
+            // --- Suoni generati al volo (nessun file audio) ---
+            SPELL_SPATIAL_FULMINE: 'spell_spatial_fulmine',
+            FULMINE_BOUNCE: 'fulmine_bounce'
         };
 
         // Percorsi relativi a client/public (Vite li serve dalla root del sito)
@@ -158,8 +176,34 @@ class AudioManager {
             [this.soundTypes.DRAW_40]: '/sound/sfx/draw/untitled - Track 40.wav',
             [this.soundTypes.CLOCK]: '/sound/sfx/clock.mp3',
             [this.soundTypes.START_1]: '/sound/sfx/VR_impact_clonk.wav',
-            [this.soundTypes.START_2]: '/sound/sfx/VR_impact_clank.wav'
+            [this.soundTypes.START_2]: '/sound/sfx/VR_impact_clank.wav',
+            [this.soundTypes.PROJECTILE_FULMINE]: '/sound/sfx/proj/lightning-proj.wav',
+            [this.soundTypes.SPELL_FULMINE]: '/sound/sfx/simple/lightning single.wav',
+            [this.soundTypes.LASER_INIT_NEUTRAL]: '/sound/sfx/lasr/magk-lasr-init.wav',
+            [this.soundTypes.LASER_CONT_NEUTRAL]: '/sound/sfx/lasr/magk-lasr-cont.wav',
+            [this.soundTypes.LASER_INIT_FUOCO]: '/sound/sfx/lasr/fire-lasr-init.wav',
+            [this.soundTypes.LASER_CONT_FUOCO]: '/sound/sfx/lasr/fire-lasr-cont.wav',
+            [this.soundTypes.LASER_INIT_ACQUA]: '/sound/sfx/lasr/water-lasr-init.wav',
+            [this.soundTypes.LASER_CONT_ACQUA]: '/sound/sfx/lasr/water-lasr-cont.wav',
+            [this.soundTypes.LASER_INIT_ARIA]: '/sound/sfx/lasr/air-lasr-init.wav',
+            [this.soundTypes.LASER_CONT_ARIA]: '/sound/sfx/lasr/air-lasr-cont.wav',
+            [this.soundTypes.LASER_INIT_TERRA]: '/sound/sfx/lasr/earth-lasr-init.wav',
+            [this.soundTypes.LASER_CONT_TERRA]: '/sound/sfx/lasr/earth-lasr-cont.wav',
+            [this.soundTypes.LASER_INIT_FULMINE]: '/sound/sfx/lasr/lightning-lasr-init.wav',
+            [this.soundTypes.LASER_CONT_FULMINE]: '/sound/sfx/lasr/lightning-lasr-cont.wav'
         };
+
+        // Coppie init/cont dei laser per elemento ('neutral' = mana puro).
+        // Un elemento senza voce qui usa i suoni neutri.
+        this.laserSoundTypes = {
+            neutral: { init: this.soundTypes.LASER_INIT_NEUTRAL, cont: this.soundTypes.LASER_CONT_NEUTRAL },
+            fuoco: { init: this.soundTypes.LASER_INIT_FUOCO, cont: this.soundTypes.LASER_CONT_FUOCO },
+            acqua: { init: this.soundTypes.LASER_INIT_ACQUA, cont: this.soundTypes.LASER_CONT_ACQUA },
+            aria: { init: this.soundTypes.LASER_INIT_ARIA, cont: this.soundTypes.LASER_CONT_ARIA },
+            terra: { init: this.soundTypes.LASER_INIT_TERRA, cont: this.soundTypes.LASER_CONT_TERRA },
+            fulmine: { init: this.soundTypes.LASER_INIT_FULMINE, cont: this.soundTypes.LASER_CONT_FULMINE }
+        };
+        this.laserVoices = new Map(); // elemento -> { gain, sources } dei laser in riproduzione
 
         // Stato specifico per i loop
         this.loopStates = {
@@ -169,6 +213,7 @@ class AudioManager {
             [this.soundTypes.SPELL_SPATIAL_ACQUA]: { isPlaying: false, id: null },
             [this.soundTypes.SPELL_SPATIAL_ARIA]: { isPlaying: false, id: null },
             [this.soundTypes.SPELL_SPATIAL_TERRA]: { isPlaying: false, id: null },
+            [this.soundTypes.SPELL_SPATIAL_FULMINE]: { isPlaying: false, id: null },
             [this.soundTypes.CLOCK]: { isPlaying: false, id: null },
             // [this.soundTypes.DRAWING_LOOP]: { isPlaying: false, id: null }, // Se implementato come loop
         };
@@ -261,8 +306,64 @@ class AudioManager {
         return impulse;
     }
 
+    // Suoni senza file audio, generati qui: il ronzio delle aree di fulmine e il rimbalzo del fulmine.
+    // Per sostituirli basta aggiungere il file in soundFiles con la stessa chiave.
+    createSynthesizedSounds() {
+        const ctx = this.audioContext;
+        const rate = ctx.sampleRate;
+        const TWO_PI = Math.PI * 2;
+        const make = (seconds, fill) => {
+            const length = Math.floor(rate * seconds);
+            const buffer = ctx.createBuffer(1, length, rate);
+            const data = buffer.getChannelData(0);
+            fill(data, length);
+            // Normalizza il picco
+            let peak = 0;
+            for (let i = 0; i < length; i++) peak = Math.max(peak, Math.abs(data[i]));
+            if (peak > 0) for (let i = 0; i < length; i++) data[i] *= 0.8 / peak;
+            return buffer;
+        };
+        // Rumore "a scatti": il volume cambia ogni pochi millisecondi, come uno scoppiettio
+        const crackle = () => {
+            let gate = 1;
+            let low = 0;
+            return (i) => {
+                if (i % 160 === 0) gate = Math.random() < 0.45 ? 1 : 0.08;
+                low += ((Math.random() * 2 - 1) - low) * 0.6;
+                return low * gate;
+            };
+        };
+
+        const synthesized = {
+            // Rimbalzo del fulmine: solo lo scoppiettio elettrico, che si spegne in fretta
+            [this.soundTypes.FULMINE_BOUNCE]: make(0.45, (data, length) => {
+                const noise = crackle();
+                for (let i = 0; i < length; i++) {
+                    const t = i / rate;
+                    data[i] = Math.exp(-t * 7) * noise(i);
+                }
+            }),
+            // Ronzio elettrico continuo (loop: frequenze intere sui 2 s per non avere scatti)
+            [this.soundTypes.SPELL_SPATIAL_FULMINE]: make(2, (data, length) => {
+                const noise = crackle();
+                const edge = Math.floor(rate * 0.05);
+                for (let i = 0; i < length; i++) {
+                    const t = i / rate;
+                    const saw = ((t * 60) % 1) * 2 - 1;
+                    const buzz = 0.35 * saw + 0.2 * Math.sin(TWO_PI * 120 * t);
+                    const sparks = i > edge && i < length - edge && Math.sin(TWO_PI * 3 * t) > 0.6 ? noise(i) * 0.5 : 0;
+                    data[i] = buzz + sparks;
+                }
+            })
+        };
+        for (const [type, buffer] of Object.entries(synthesized)) {
+            if (!this.audioBuffers.has(type)) this.audioBuffers.set(type, buffer);
+        }
+    }
+
     async loadAllSounds() {
         console.log("🎵 AudioManager: Caricamento di tutti i suoni...");
+        this.createSynthesizedSounds();
         const promises = Object.entries(this.soundFiles).map(([type, url]) => this.loadSound(type, url));
         try {
             await Promise.all(promises);
@@ -390,7 +491,8 @@ class AudioManager {
     }
 
     // Metodo per riprodurre il suono di un proiettile specifico
-    playProjectileSound(element = null) {
+    // (volumeScale < 1 per le magie dell'avversario)
+    playProjectileSound(element = null, volumeScale = 1) {
         let soundType = this.soundTypes.PROJECTILE_NEUTRAL;
         if (element) {
             const elementMap = {
@@ -398,10 +500,70 @@ class AudioManager {
                 'acqua': this.soundTypes.PROJECTILE_ACQUA,
                 'aria': this.soundTypes.PROJECTILE_ARIA,
                 'terra': this.soundTypes.PROJECTILE_TERRA,
+                'fulmine': this.soundTypes.PROJECTILE_FULMINE,
             };
             soundType = elementMap[element] || soundType;
         }
-        this.playSound(soundType, 0.6); // Volume leggermente più basso
+        this.playSound(soundType, 0.6 * volumeScale); // Volume leggermente più basso
+    }
+
+    // Rimbalzo di un proiettile di fulmine (sui bordi o sulla terra)
+    playFulmineBounceSound(volumeScale = 1) {
+        this.playSound(this.soundTypes.FULMINE_BOUNCE, 0.45 * volumeScale);
+    }
+
+    // Un suono per elemento finché c'è almeno un laser di quell'elemento in campo (nostro o dell'avversario).
+    // element null = mana puro. Si può chiamare a ogni frame: parte e si ferma solo quando serve.
+    setLaserLoopPlaying(element, isPlaying) {
+        const key = element || 'neutral';
+        const voice = this.laserVoices.get(key);
+        if (isPlaying && !voice) this.startLaserVoice(key);
+        else if (!isPlaying && voice) this.stopLaserVoice(key);
+    }
+
+    // L'"init" suona una volta, il "cont" parte esattamente alla sua fine e va in loop
+    startLaserVoice(key) {
+        if (!this.enabled) return;
+        const types = this.laserSoundTypes[key] || this.laserSoundTypes.neutral;
+        const init = this.audioBuffers.get(types.init);
+        const cont = this.audioBuffers.get(types.cont);
+        if (!cont) return; // non ancora caricato: si riprova al prossimo frame
+
+        const gain = this.audioContext.createGain();
+        gain.gain.value = 0.35 * this.globalVolume;
+        gain.connect(this.audioContext.destination);
+        gain.connect(this.convolver);
+
+        const now = this.audioContext.currentTime;
+        const sources = [];
+        let loopStart = now;
+        if (init) {
+            const intro = this.audioContext.createBufferSource();
+            intro.buffer = init;
+            intro.connect(gain);
+            intro.start(now);
+            sources.push(intro);
+            loopStart = now + init.duration;
+        }
+        const loop = this.audioContext.createBufferSource();
+        loop.buffer = cont;
+        loop.loop = true;
+        loop.connect(gain);
+        loop.start(loopStart);
+        sources.push(loop);
+        this.laserVoices.set(key, { gain, sources });
+    }
+
+    // Breve dissolvenza per non sentire lo "scatto" quando il laser si spegne
+    stopLaserVoice(key) {
+        const voice = this.laserVoices.get(key);
+        this.laserVoices.delete(key);
+        const now = this.audioContext.currentTime;
+        voice.gain.gain.setValueAtTime(voice.gain.gain.value, now);
+        voice.gain.gain.linearRampToValueAtTime(0, now + 0.15);
+        for (const source of voice.sources) {
+            try { source.stop(now + 0.16); } catch { /* già fermo */ }
+        }
     }
 
     // Metodo per riprodurre il suono di una magia spaziale specifica (futuro)
@@ -413,10 +575,11 @@ class AudioManager {
                 'acqua': this.soundTypes.SPELL_SPATIAL_ACQUA,
                 'aria': this.soundTypes.SPELL_SPATIAL_ARIA,
                 'terra': this.soundTypes.SPELL_SPATIAL_TERRA,
+                'fulmine': this.soundTypes.SPELL_SPATIAL_FULMINE,
             };
             soundType = elementMap[element] || soundType;
         }
-    
+
         if (isPlaying) {
             if (!this.loopStates[soundType] || !this.loopStates[soundType].isPlaying) {
                 this.playSound(soundType, 0.65); // Avvia il loop
@@ -429,19 +592,20 @@ class AudioManager {
     }
 
     // Metodo per riprodurre il suono di un elemento evocato (senza proiezione)
-    playElementSpellSound(element) {
+    playElementSpellSound(element, volumeScale = 1) {
         if (!element) return;
-        
+
         const elementMap = {
             'fuoco': this.soundTypes.SPELL_FUOCO,
             'acqua': this.soundTypes.SPELL_ACQUA,
             'aria': this.soundTypes.SPELL_ARIA,
             'terra': this.soundTypes.SPELL_TERRA,
+            'fulmine': this.soundTypes.SPELL_FULMINE,
         };
-        
+
         const soundType = elementMap[element];
         if (soundType) {
-            this.playSound(soundType, 0.7); // Volume 0.7
+            this.playSound(soundType, 0.7 * volumeScale); // Volume 0.7
         }
     }
 
@@ -516,6 +680,7 @@ class AudioManager {
     }
 
     stopAllSounds() {
+        [...this.laserVoices.keys()].forEach(key => this.stopLaserVoice(key));
         // Ferma tutti i loop attivi
         for (const [type, state] of Object.entries(this.loopStates)) {
             if (state.isPlaying) {

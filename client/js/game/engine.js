@@ -1,8 +1,8 @@
 // engine.js - Motore di gioco: disegno dei simboli, cerchi magici, proiezioni, mana ed esperienza.
 // Usato da lab.html (laboratorio) e da game.html (training e PvP).
-import DollarRecognizer from "./dollar-recognizer.js";
+import DollarRecognizer, { analyzeLaserStroke } from "./dollar-recognizer.js";
 import { drawManaSegments, setManaValues, getManaValues, setCurrentMana, getCurrentMana } from "./manabar.js";
-import { drawElementPattern, drawProjectilePolygonPattern } from "./element-patterns.js";
+import { drawElementPattern, drawProjectilePolygonPattern, drawLaserPattern } from "./element-patterns.js";
 import { loadPlayerFromDB, savePlayerData, incrementPlayerCounters, getCurrentUsername } from "../services/player-db.js";
 import { VirtualMouseEntity, globalCollisionSystem } from "./collision-system.js";
 import { Spark } from "./sparks.js";
@@ -11,16 +11,21 @@ import { drawBrushStroke } from "./brush-stroke.js";
 import { SpatialAreaRenderer } from "./spatial-shader.js";
 import { PvPManager } from "./pvp-manager.js";
 import { applyCameraShake, triggerCameraShake, updateRedOverlay, drawRedOverlay } from './damage-effects.js';
-import { statusEffectManager, applyElementalHit, updateStatusEffects, createElementalDebuffParticles } from "./status-effects.js";
+import {
+  statusEffectManager, applyElementalHit, applyParalysis, updateStatusEffects, createElementalDebuffParticles
+} from "./status-effects.js";
 import { audioManager } from './audio-manager.js';
-import { isElement, getElementColor, parseColor, withAlpha, NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR, DEFAULT_SPAZIALE_COLOR } from './elements.js';
+import {
+  ELEMENTS, isElement, getElementColor, getOpponentElementColor, parseColor, withAlpha,
+  NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR, DEFAULT_SPAZIALE_COLOR
+} from './elements.js';
 import { getExpToNext, BURNOUT_FRAMES } from './progression.js';
 import {
-  computePlayerStats, getRecognitionThreshold, applyElementDefense, getAtkMultiplier, SPATIAL_DAMAGE_AREA_UNIT
+  computePlayerStats, getRecognitionThreshold, applyElementDefense, getAtkMultiplier, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT
 } from './player-stats.js';
 import {
-  getInteraction, blocksProjectiles, VARIANT_COLORS,
-  LUSH_DURATION_MS, MAGMA_DURATION_MS, MAGMA_TRAIL_MS, LUSH_MANA_REGEN_MULTIPLIER
+  getInteraction, blocksProjectiles, bouncesOffSurfaces, VARIANT_COLORS, VARIANT_DURATIONS,
+  MAGMA_TRAIL_MS, LUSH_MANA_REGEN_MULTIPLIER
 } from './spell-interactions.js';
 
 const recognizer = new DollarRecognizer();
@@ -66,6 +71,8 @@ layoutWorld();
 const areaShader = new SpatialAreaRenderer(canvas);
 
 // === COSTANTI ===
+// Le velocità sono espresse "per frame a 60fps": il movimento viene scalato con il tempo reale
+// trascorso (frameScale), così la partita va alla stessa velocità su schermi a 60, 144 o 240 Hz.
 const PROJECTILE_SPEED = 16;
 const PROJECTILE_MANA_COST = 2;
 const ELEMENT_MANA_COST = 1;
@@ -74,6 +81,20 @@ const CIRCLE_RADIUS = 120;
 const DRAW_SOUND_THROTTLE = 100;
 const COUNTERS_SAVE_INTERVAL_MS = 1000;
 const MANA_SAVE_INTERVAL_MS = 15000;
+const FRAME_MS = 1000 / 60;
+const OPPONENT_SOUND_VOLUME = 0.75;     // le magie dell'avversario suonano un po' più piano
+
+// ⚡ Fulmine: proiettili e laser rimbalzano sui bordi dell'arena e sulle aree di terra
+const FULMINE_MAX_BOUNCES = 4;
+const FULMINE_LASER_MAX_BOUNCES = 1;  // il laser è permanente: con troppi rimbalzi copriva mezza arena
+const FULMINE_PROJECTILE_LIFE = 180;    // frame (3 s): rimbalzando non escono subito dall'arena
+
+// Laser: magia permanente, consuma mana ogni 0.1 s finché non si annulla
+const LASER_MANA_PER_TICK = 0.15;
+const LASER_MANA_TICK_MS = 100;
+const LASER_HIT_RADIUS = 18;            // distanza dal raggio entro cui si viene colpiti
+const LASER_CANCEL_RADIUS = 20;         // distanza dal raggio entro cui il tasto destro lo annulla
+const LASER_DAMAGE_TICK_MS = 500;
 
 // === STATO DI GIOCO ===
 let casting = false;
@@ -82,6 +103,14 @@ let particles = [];            // scia del disegno
 let activeMagicParticles = [];
 let fireParticles = [];
 let projectiles = [];
+// Laser del giocatore: { id, origin, dir, element, variant, expiresAt, simple, path, ... }
+// (quelli dell'avversario sono in pvpManager.opponentLasers)
+let lasers = [];
+
+// Tempo reale dell'ultimo frame: frameScale = 1 a 60fps, 0.42 a 144fps...
+let lastFrameTime = performance.now();
+let frameScale = 1;
+let frameMs = FRAME_MS;
 
 // Cerchio magico: { x, y, radius, thickness, elemento, projections: [] }
 // L'elemento appartiene al cerchio: quando il cerchio sparisce sparisce anche l'infusione,
@@ -109,8 +138,12 @@ const mouseTarget = { x: virtualMouse.x, y: virtualMouse.y };
 const virtualMouseEntity = new VirtualMouseEntity(virtualMouse.x, virtualMouse.y);
 globalCollisionSystem.registerEntity(virtualMouseEntity);
 
+// Corpo del giocatore: è ciò che viene colpito. Di solito coincide con il mouse virtuale;
+// durante la paralisi del fulmine resta fermo mentre il cursore continua a muoversi per disegnare.
+const playerBody = { x: virtualMouse.x, y: virtualMouse.y, attached: true };
+
 // Effetti di stato sul giocatore locale (aggiornati da status-effects.js)
-const playerStatus = { speedMultiplier: 1, controlsInverted: false, stunned: false };
+const playerStatus = { speedMultiplier: 1, controlsInverted: false, stunned: false, paralyzed: false };
 
 let collisionSparks = [];
 
@@ -153,7 +186,11 @@ function initializeGameMode() {
       return;
     }
     pvpManager = new PvPManager(canvas, ctx, world);
-    pvpManager.onAreaGranted = receiveGrantedArea;
+    pvpManager.onSpellGranted = receiveGrantedSpell;
+    pvpManager.ownsSpell = ownsSpell;
+    pvpManager.onOpponentProjectile = receiveOpponentProjectile;
+    pvpManager.onOpponentElement = receiveOpponentElement;
+    pvpManager.onOpponentLaserCast = receiveOpponentLaserCast;
     pvpManager.shaderFillsAreas = areaShader.ok;
     console.log('🎮 Modalità PvP inizializzata');
   }
@@ -170,6 +207,10 @@ function registerPlayerStatusCallbacks() {
   statusEffectManager.registerStunCallback('player', (stunned) => {
     playerStatus.stunned = stunned;
   });
+  statusEffectManager.registerParalysisCallback('player', (paralyzed) => {
+    playerStatus.paralyzed = paralyzed;
+    if (paralyzed) playerBody.attached = false;
+  });
 
   // Nel PvP danni e particelle degli effetti sono gestiti dal PvPManager
   if (!pvpManager) {
@@ -180,7 +221,7 @@ function registerPlayerStatusCallbacks() {
     });
     statusEffectManager.registerVisualCallback('player', (effectType, element) => {
       if (effectType === 'debuff_particles') {
-        createElementalDebuffParticles(element, virtualMouse, activeMagicParticles);
+        createElementalDebuffParticles(element, playerBody, activeMagicParticles);
       }
     });
   }
@@ -334,9 +375,7 @@ canvas.addEventListener("mouseup", (e) => {
 
   // Click su un cerchio con solo l'elemento: mostra l'effetto dell'elemento
   if (wasOnCircle && magicCircle && magicCircle.elemento && canCast()) {
-    showElementEffect(magicCircle.elemento, magicCircle);
-    incrementaAffinitaBuffer(magicCircle.elemento);
-    audioManager.playElementSpellSound(magicCircle.elemento);
+    castElementEffect(magicCircle.elemento, magicCircle);
   }
 });
 
@@ -373,6 +412,7 @@ window.addEventListener("keydown", (e) => {
   if (!pvpManager) {
     const testEffects = { '1': 'fuoco', '2': 'acqua', '3': 'aria', '4': 'terra' };
     if (testEffects[e.key]) applyElementalHit(testEffects[e.key], 'player');
+    if (e.key === '5') applyParalysis('player'); // ⚡ paralisi delle aree di fulmine
   }
 });
 
@@ -416,7 +456,7 @@ function recognizeSpell(stroke) {
 
   // Dentro un cerchio magico i simboli caricano il cerchio invece di lanciare
   if (magicCircle) {
-    if (name === "proiettile" || name === "spaziale") {
+    if (name === "proiettile" || name === "spaziale" || name === "laser") {
       magicCircle.projections.push(name);
       return name;
     }
@@ -432,14 +472,35 @@ function recognizeSpell(stroke) {
   } else if (name === "proiettile") {
     // Proiettile libero: sempre mana puro (neutro)
     launchProjectile(stroke[0], stroke[stroke.length - 1]);
+  } else if (name === "laser") {
+    // Laser libero ("semplice"): mana puro, parte dall'inizio del tratto verso la punta della linea
+    if (canCast()) {
+      const { start, end } = analyzeLaserStroke(stroke);
+      launchLaser(start, end, { simple: true });
+    }
   } else if (isElement(name)) {
     if (spendMana(ELEMENT_MANA_COST)) {
-      showElementEffect(name, virtualMouse);
-      incrementaAffinitaBuffer(name);
-      audioManager.playElementSpellSound(name);
+      castElementEffect(name, virtualMouse);
     }
   }
   return name;
+}
+
+// Elemento evocato a vuoto (o click su un cerchio con solo l'elemento): particelle e suono,
+// visibili e udibili anche dall'avversario
+function castElementEffect(element, position) {
+  showElementEffect(element, position);
+  incrementaAffinitaBuffer(element);
+  audioManager.playElementSpellSound(element);
+  if (pvpManager && pvpManager.isActive()) {
+    pvpManager.sendSpellCast({ type: 'elemento', element, position: { x: position.x, y: position.y } });
+  }
+}
+
+function receiveOpponentElement(data) {
+  if (!isElement(data.element) || !data.position) return;
+  showElementEffect(data.element, data.position);
+  audioManager.playElementSpellSound(data.element, OPPONENT_SOUND_VOLUME);
 }
 
 
@@ -487,9 +548,10 @@ function launchFromCircle(start, end) {
   const tipo = peekProjection();
   if (!tipo || tipo === 'spaziale') return;
   // La carica si consuma solo se il lancio riesce (trascinamento abbastanza lungo e mana sufficiente)
-  if (launchProjectile(start, end, { element: magicCircle.elemento, tipo })) {
-    consumeCharge();
-  }
+  const launched = tipo === 'laser'
+    ? launchLaser(start, end, { element: magicCircle.elemento })
+    : launchProjectile(start, end, { element: magicCircle.elemento, tipo });
+  if (launched) consumeCharge();
 }
 
 function castSpazialeFromCircle(polygon) {
@@ -499,9 +561,17 @@ function castSpazialeFromCircle(polygon) {
   consumeCharge();
 }
 
-// Tasto destro / X: cancella l'area spaziale sotto il mouse, altrimenti il cerchio magico
+// Tasto destro / X, in ordine: il laser sotto il mouse, l'area spaziale sotto il mouse,
+// il cerchio magico sotto il mouse; altrimenti l'ultimo laser "semplice" (lanciato a vuoto)
 function cancelAtVirtualMouse() {
   const mouse = { x: virtualMouse.x, y: virtualMouse.y };
+
+  for (let i = lasers.length - 1; i >= 0; i--) {
+    if (distanceToPath(mouse, lasers[i].path) <= LASER_CANCEL_RADIUS) {
+      removeLaserById(lasers[i].id);
+      return;
+    }
+  }
 
   for (let i = permanentSpazialeAreas.length - 1; i >= 0; i--) {
     if (pointInPolygon(mouse, permanentSpazialeAreas[i].points)) {
@@ -510,13 +580,16 @@ function cancelAtVirtualMouse() {
     }
   }
 
-  if (!magicCircle) return;
-  const dist = Math.hypot(mouse.x - magicCircle.x, mouse.y - magicCircle.y);
-  if (dist <= magicCircle.radius) {
-    // La cancellazione manuale del cerchio rimuove anche le aree spaziali
+  if (magicCircle && Math.hypot(mouse.x - magicCircle.x, mouse.y - magicCircle.y) <= magicCircle.radius) {
+    // La cancellazione manuale del cerchio rimuove anche le magie permanenti
     removeAllSpazialeAreas();
+    removeAllLasers();
     removeMagicCircle();
+    return;
   }
+
+  const simpleLaser = lasers.findLast(l => l.simple);
+  if (simpleLaser) removeLaserById(simpleLaser.id);
 }
 
 function drawMagicCircle() {
@@ -649,43 +722,10 @@ function launchProjectile(start, end, { element = null, tipo = "proiettile" } = 
 
   const vx = (dx / dist) * PROJECTILE_SPEED;
   const vy = (dy / dist) * PROJECTILE_SPEED;
+  const maxLife = getProjectileLife(start, vx, vy, element);
   const color = element ? getElementColor(element) : NEUTRAL_COLOR;
 
-  // Effetto particelle di lancio, orientate nella direzione del tiro
-  const launchAngle = Math.atan2(vy, vx);
-  for (let i = 0; i < 80; i++) {
-    activeMagicParticles.push({
-      x: start.x + (Math.random() - 0.5) * 22,
-      y: start.y + (Math.random() - 0.5) * 22,
-      radius: Math.random() * 2.2 + 1.2,
-      alpha: 0.18 + Math.random() * 0.18,
-      dx: (Math.random() - 0.5) * 1.5 + vx * 0.06,
-      dy: (Math.random() - 0.5) * 1.5 + vy * 0.06,
-      color,
-      element,
-      angle: launchAngle
-    });
-  }
-
-  // Durata = frame necessari per uscire dall'area di gioco
-  const times = [];
-  if (vx !== 0) times.push(vx > 0 ? (world.width - start.x) / vx : -start.x / vx);
-  if (vy !== 0) times.push(vy > 0 ? (world.height - start.y) / vy : -start.y / vy);
-  const positiveTimes = times.filter(t => t > 0);
-  const maxLife = Math.max(30, Math.floor(positiveTimes.length ? Math.min(...positiveTimes) : 1));
-
-  projectiles.push({
-    x: start.x,
-    y: start.y,
-    vx,
-    vy,
-    life: maxLife,
-    alpha: 1,
-    color,
-    tipo,
-    owner: gameMode === 'pvp' ? 'local' : 'training',
-    element
-  });
+  createProjectile({ start, vx, vy, life: maxLife, color, tipo, element, owner: gameMode === 'pvp' ? 'local' : 'training' });
 
   if (pvpManager && pvpManager.isActive()) {
     pvpManager.sendProjectileLaunch({
@@ -705,6 +745,71 @@ function launchProjectile(start, end, { element = null, tipo = "proiettile" } = 
   return true;
 }
 
+// Durata (in frame a 60fps) = tempo per uscire dall'area di gioco; i proiettili che rimbalzano durano di più
+function getProjectileLife(start, vx, vy, element) {
+  if (bouncesOffSurfaces(element)) return FULMINE_PROJECTILE_LIFE;
+  const times = [];
+  if (vx !== 0) times.push(vx > 0 ? (world.width - start.x) / vx : -start.x / vx);
+  if (vy !== 0) times.push(vy > 0 ? (world.height - start.y) / vy : -start.y / vy);
+  const positiveTimes = times.filter(t => t > 0);
+  return Math.max(30, Math.floor(positiveTimes.length ? Math.min(...positiveTimes) : 1));
+}
+
+// Proiettili nostri e dell'avversario nascono allo stesso modo (stesse particelle di lancio),
+// così a parità di velocità hanno anche lo stesso aspetto
+function createProjectile({ start, vx, vy, life, color, tipo, element, owner }) {
+  spawnLaunchParticles(start, vx, vy, color, element);
+  projectiles.push({
+    x: start.x,
+    y: start.y,
+    prevX: start.x,
+    prevY: start.y,
+    vx,
+    vy,
+    life,
+    alpha: 1,
+    color,
+    tipo,
+    owner,
+    element,
+    bounces: bouncesOffSurfaces(element) ? FULMINE_MAX_BOUNCES : 0
+  });
+}
+
+// Effetto particelle di lancio, orientate nella direzione del tiro
+function spawnLaunchParticles(start, vx, vy, color, element) {
+  const launchAngle = Math.atan2(vy, vx);
+  for (let i = 0; i < 80; i++) {
+    activeMagicParticles.push({
+      x: start.x + (Math.random() - 0.5) * 22,
+      y: start.y + (Math.random() - 0.5) * 22,
+      radius: Math.random() * 2.2 + 1.2,
+      alpha: 0.18 + Math.random() * 0.18,
+      dx: (Math.random() - 0.5) * 1.5 + vx * 0.06,
+      dy: (Math.random() - 0.5) * 1.5 + vy * 0.06,
+      color,
+      element,
+      angle: launchAngle
+    });
+  }
+}
+
+function receiveOpponentProjectile(data) {
+  if (!data.start || !data.velocity) return;
+  const element = data.element || null;
+  createProjectile({
+    start: data.start,
+    vx: data.velocity.x,
+    vy: data.velocity.y,
+    life: data.maxLife || 120,
+    color: data.color || 'rgba(255, 100, 100,',
+    tipo: data.tipo || 'proiettile',
+    element,
+    owner: 'opponent'
+  });
+  audioManager.playProjectileSound(element, OPPONENT_SOUND_VOLUME);
+}
+
 function updateProjectiles() {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
@@ -713,10 +818,23 @@ function updateProjectiles() {
       continue;
     }
 
-    p.x += p.vx;
-    p.y += p.vy;
-    p.life--;
+    p.prevX = p.x;
+    p.prevY = p.y;
+    p.x += p.vx * frameScale;
+    p.y += p.vy * frameScale;
+    p.life -= frameScale;
     p.alpha *= 0.97;
+
+    // ⚡ Il fulmine rimbalza sui bordi dell'arena invece di uscire
+    const outside = p.x < 0 || p.x > world.width || p.y < 0 || p.y > world.height;
+    if (outside && p.bounces > 0) {
+      if (p.x < 0 || p.x > world.width) p.vx = -p.vx;
+      if (p.y < 0 || p.y > world.height) p.vy = -p.vy;
+      p.x = Math.max(0, Math.min(world.width, p.x));
+      p.y = Math.max(0, Math.min(world.height, p.y));
+      p.bounces--;
+      spawnBounceSparks(p);
+    }
 
     // Scia: orientata lungo il moto del proiettile e trascinata leggermente indietro
     const trailAngle = Math.atan2(p.vy, p.vx);
@@ -729,7 +847,8 @@ function updateProjectiles() {
         dx: (Math.random() - 0.5) * 1.1 - p.vx * 0.08,
         dy: (Math.random() - 0.5) * 1.1 - p.vy * 0.08,
         color: p.color || NEUTRAL_COLOR,
-        element: p.element,
+        // Un proiettile elettrificato lascia scariche invece della sua forma solita
+        element: p.charged && j % 2 === 0 ? 'fulmine' : p.element,
         angle: trailAngle
       });
     }
@@ -740,6 +859,439 @@ function updateProjectiles() {
   }
 }
 
+function spawnBounceSparks(p) {
+  audioManager.playFulmineBounceSound(p.owner === 'opponent' ? OPPONENT_SOUND_VOLUME : 1);
+  for (let k = 0; k < 14; k++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 3 + 1;
+    activeMagicParticles.push({
+      x: p.x,
+      y: p.y,
+      radius: Math.random() * 2 + 1,
+      alpha: 0.7,
+      dx: Math.cos(angle) * speed,
+      dy: Math.sin(angle) * speed,
+      color: p.color || NEUTRAL_COLOR,
+      element: 'fulmine'
+    });
+  }
+}
+
+// Fa rimbalzare il proiettile sul lato del poligono attraversato nell'ultimo frame
+function bounceOffPolygon(p, polygon) {
+  const hit = intersectSegmentWithPolygon({ x: p.prevX, y: p.prevY }, { x: p.x, y: p.y }, polygon);
+  if (hit) {
+    const reflected = reflect({ x: p.vx, y: p.vy }, hit.normal);
+    p.vx = reflected.x;
+    p.vy = reflected.y;
+    // Torna appena prima del bordo, fuori dall'area
+    const t = Math.max(0, hit.t - 0.02);
+    p.x = p.prevX + (p.x - p.prevX) * t;
+    p.y = p.prevY + (p.y - p.prevY) * t;
+  } else {
+    // Nessun lato trovato (es. era già dentro): torna indietro da dove è venuto
+    p.vx = -p.vx;
+    p.vy = -p.vy;
+    p.x = p.prevX;
+    p.y = p.prevY;
+  }
+  p.bounces--;
+  spawnBounceSparks(p);
+}
+
+
+// ============================================================
+// PROIEZIONE: LASER (magia permanente)
+// ============================================================
+// Il raggio parte da un punto fisso in una direzione e arriva al bordo dell'arena.
+// Si ferma sulle aree di terra con cui non reagisce (come i proiettili); quello di fulmine
+// invece rimbalza su bordi e terra. Il percorso (path) si ricalcola a ogni frame.
+// Chi tocca un laser avversario subisce danno ogni 0.5 s; il proprietario paga mana ogni 0.1 s.
+
+/**
+ * @param {boolean} simple laser lanciato a vuoto: si annulla con il tasto destro anche lontano dal raggio
+ * @returns {boolean} true se il laser è partito
+ */
+function launchLaser(start, end, { element = null, simple = false } = {}) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < MIN_LAUNCH_DISTANCE) return false;
+  if (!spendMana(LASER_MANA_PER_TICK)) return false;
+
+  const laser = registerLocalLaser({
+    id: `laser_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+    origin: { x: start.x, y: start.y },
+    dir: { x: dx / dist, y: dy / dist },
+    element,
+    simple
+  });
+  sendLaserUpdate(laser);
+  spawnLaserCastParticles(laser, element ? getElementColor(element) : NEUTRAL_COLOR);
+
+  incrementaProiezioneUsataBuffer('laser');
+  if (element) incrementaAffinitaBuffer(element);
+  addExp(2);
+  return true;
+}
+
+// Registra un laser del giocatore locale (lanciato da lui, oppure ceduto dall'avversario)
+function registerLocalLaser({ id, origin, dir, element = null, variant = null, expiresAt = null, simple = false }) {
+  const laser = {
+    id,
+    origin,
+    dir,
+    element,
+    variant,
+    expiresAt,
+    simple,
+    path: [],
+    manaTimer: 0,
+    affinityTimer: 0
+  };
+  laser.path = computeLaserPath(laser);
+  lasers.push(laser);
+  return laser;
+}
+
+function spawnLaserCastParticles(laser, color) {
+  const angle = Math.atan2(laser.dir.y, laser.dir.x);
+  for (let i = 0; i < 50; i++) {
+    activeMagicParticles.push({
+      x: laser.origin.x + (Math.random() - 0.5) * 20,
+      y: laser.origin.y + (Math.random() - 0.5) * 20,
+      radius: Math.random() * 2.2 + 1.2,
+      alpha: 0.2 + Math.random() * 0.2,
+      dx: (Math.random() - 0.5) * 1.5 + laser.dir.x * 2,
+      dy: (Math.random() - 0.5) * 1.5 + laser.dir.y * 2,
+      color,
+      element: laser.element,
+      angle
+    });
+  }
+}
+
+// Comunica all'avversario lo stato attuale di un nostro laser (stesso id = aggiornamento).
+// Usa i campi già inoltrati dal server: position = origine, polygonPoints = [origine, punto sulla direzione]
+function sendLaserUpdate(laser, extra = {}) {
+  if (!pvpManager || !pvpManager.isActive()) return;
+  const dmgBonus = playerStats.elementDmgBonus[laser.element] || 0;
+  pvpManager.sendSpellCast({
+    type: 'laser',
+    position: laser.origin,
+    polygonPoints: [laser.origin, { x: laser.origin.x + laser.dir.x * 100, y: laser.origin.y + laser.dir.y * 100 }],
+    element: laser.element,
+    areaId: laser.id,
+    variant: laser.variant,
+    expiresIn: laser.expiresAt ? Math.max(0, laser.expiresAt - Date.now()) : null,
+    damagePerTick: playerStats.damage.laser * (1 + dmgBonus),
+    magmaAtk: laser.variantAtk,
+    ...extra
+  });
+}
+
+function receiveOpponentLaserCast(laser) {
+  laser.path = computeLaserPath(laser);
+  spawnLaserCastParticles(laser, laser.element ? getOpponentElementColor(laser.element) : '#ff6666');
+}
+
+function removeLaserById(id) {
+  const index = lasers.findIndex(l => l.id === id);
+  if (index === -1) return;
+  lasers.splice(index, 1);
+  if (pvpManager && pvpManager.isActive()) {
+    pvpManager.sendSpellRemoval({ type: 'laser', areaId: id });
+  }
+}
+
+function removeAllLasers() {
+  [...lasers].forEach(l => removeLaserById(l.id));
+}
+
+function getOpponentLasers() {
+  return pvpManager ? pvpManager.opponentLasers : [];
+}
+
+// Aree che fermano il laser: terra "pura" con cui il laser non reagisce
+// (quelle da cui parte il laser non contano, come per i proiettili lanciati da dentro un'area)
+function getLaserBlockers(laser) {
+  const magic = { element: laser.element, variant: laser.variant };
+  return [...permanentSpazialeAreas, ...getOpponentAreas()]
+    .filter(area => {
+      if (!blocksProjectiles(area)) return false;
+      const result = getInteraction(magic, { element: area.element, variant: area.variant });
+      return !result.a && !result.b && !pointInPolygon(laser.origin, area.points);
+    })
+    .map(area => area.points);
+}
+
+function computeLaserPath(laser) {
+  const bounces = bouncesOffSurfaces(laser.element) && !laser.variant ? FULMINE_LASER_MAX_BOUNCES : 0;
+  const blockers = getLaserBlockers(laser);
+  let pos = { x: laser.origin.x, y: laser.origin.y };
+  let dir = { x: laser.dir.x, y: laser.dir.y };
+  const path = [pos];
+
+  for (let i = 0; i <= bounces; i++) {
+    const hit = castRay(pos, dir, blockers);
+    path.push(hit.point);
+    if (i === bounces || !hit.normal) break;
+    dir = reflect(dir, hit.normal);
+    // Si stacca appena dal bordo, per non ricolpire lo stesso lato
+    pos = { x: hit.point.x + dir.x * 0.5, y: hit.point.y + dir.y * 0.5 };
+  }
+  return path;
+}
+
+// Primo ostacolo lungo il raggio: bordo dell'arena o lato di un'area che blocca
+function castRay(pos, dir, blockers) {
+  let best = { t: Infinity, point: null, normal: null };
+
+  // Bordi dell'arena
+  const tx = dir.x > 0 ? (world.width - pos.x) / dir.x : dir.x < 0 ? -pos.x / dir.x : Infinity;
+  const ty = dir.y > 0 ? (world.height - pos.y) / dir.y : dir.y < 0 ? -pos.y / dir.y : Infinity;
+  if (tx < ty) best = { t: Math.max(0, tx), normal: { x: dir.x > 0 ? -1 : 1, y: 0 } };
+  else best = { t: Math.max(0, ty), normal: { x: 0, y: dir.y > 0 ? -1 : 1 } };
+
+  for (const polygon of blockers) {
+    for (let i = 0; i < polygon.length - 1; i++) {
+      const hit = intersectRayWithSegment(pos, dir, polygon[i], polygon[i + 1]);
+      if (hit && hit.t < best.t) best = hit;
+    }
+  }
+  best.point = { x: pos.x + dir.x * best.t, y: pos.y + dir.y * best.t };
+  return best;
+}
+
+// Magia "descrizione" di un laser per le regole di interazione
+function laserMagic(laser) {
+  return { element: laser.element, variant: laser.variant };
+}
+
+// Mana ogni 0.1 s, affinità ed esperienza ogni secondo, percorso aggiornato a ogni frame
+function updateLasers() {
+  for (const laser of [...lasers, ...getOpponentLasers()]) {
+    laser.path = computeLaserPath(laser);
+  }
+
+  for (const laser of [...lasers]) {
+    if (!lasers.includes(laser)) continue; // annullato da un burnout nel frattempo
+    laser.manaTimer += frameMs;
+    while (laser.manaTimer >= LASER_MANA_TICK_MS) {
+      laser.manaTimer -= LASER_MANA_TICK_MS;
+      const cost = LASER_MANA_PER_TICK * (1 - playerStats.riduzioneMana);
+      const currentMana = getCurrentMana();
+      if (currentMana <= cost) {
+        triggerBurnout();
+        return;
+      }
+      setCurrentMana(currentMana - cost);
+      addExp(cost);
+    }
+    laser.affinityTimer += frameMs;
+    if (laser.affinityTimer >= 1000) {
+      laser.affinityTimer -= 1000;
+      incrementaProiezioneUsataBuffer('laser', 0.01);
+      if (laser.element) incrementaAffinitaBuffer(laser.element, LASER_MANA_PER_TICK);
+    }
+  }
+}
+
+function laserColor(laser, isOpponent) {
+  if (laser.variant) return VARIANT_COLORS[laser.variant];
+  if (isOpponent) return laser.element ? getOpponentElementColor(laser.element) : '#ff6666';
+  return laser.element ? getElementColor(laser.element) : NEUTRAL_COLOR;
+}
+
+function drawLasers() {
+  for (const laser of lasers) drawLaser(laser, laserColor(laser, false));
+  for (const laser of getOpponentLasers()) drawLaser(laser, laserColor(laser, true));
+}
+
+function drawLaser(laser, color) {
+  const path = laser.path;
+  if (!path || path.length < 2) return;
+  const time = performance.now() / 1000;
+  const angle = Math.atan2(laser.dir.y, laser.dir.x);
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Luce additiva: dove i raggi si sovrappongono diventano più luminosi
+  ctx.globalCompositeOperation = 'lighter';
+  if (laser.element === 'fulmine' && !laser.variant) drawLightningBeam(laser, color, time);
+  else drawEnergyBeam(laser, color, time);
+  drawBeamImpact(path[path.length - 1], color, time);
+  ctx.restore();
+
+  // Runa all'origine, orientata come il raggio (lo stesso disegno della carica sul cerchio)
+  drawLaserPattern(ctx, laser.origin.x, laser.origin.y, 62, color, angle);
+
+  // Qualche particella lungo il raggio
+  const seg = Math.floor(Math.random() * (path.length - 1));
+  const t = Math.random();
+  const a = path[seg], b = path[seg + 1];
+  activeMagicParticles.push({
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+    radius: Math.random() * 2 + 1,
+    alpha: 0.35 + Math.random() * 0.2,
+    dx: (Math.random() - 0.5) * 0.8,
+    dy: (Math.random() - 0.5) * 0.8,
+    color,
+    element: laser.variant ? null : laser.element,
+    angle: Math.atan2(b.y - a.y, b.x - a.x)
+  });
+}
+
+// Ampiezza delle eliche che avvolgono il raggio, per elemento (l'aria vortica, la terra quasi niente)
+const BEAM_HELIX_AMPLITUDE = { fuoco: 4, acqua: 7, aria: 10, terra: 2.5 };
+
+// Raggio di energia: alone a strati, due eliche che ruotano e impulsi che scorrono verso la punta
+function drawEnergyBeam(laser, color, time) {
+  const path = laser.path;
+  const phase = laser.origin.x * 0.05 + laser.origin.y * 0.03; // ogni laser pulsa per conto suo
+  const pulse = 1 + 0.12 * Math.sin(time * 9 + phase);
+  // Il fuoco tremola, gli altri pulsano regolari
+  const flicker = laser.element === 'fuoco' && !laser.variant ? 0.85 + Math.random() * 0.3 : 1;
+
+  ctx.strokeStyle = color;
+  strokePath(path, 26 * pulse * flicker, 0.08);
+  strokePath(path, 13 * pulse * flicker, 0.2);
+  strokePath(path, 6 * flicker, 0.5);
+
+  const amplitude = laser.variant ? 5 : (BEAM_HELIX_AMPLITUDE[laser.element] ?? 5);
+  ctx.strokeStyle = withAlpha(lightenColor(color, 0.45), 1);
+  for (const offset of [0, Math.PI]) {
+    strokeHelix(path, amplitude, 48, time * 7 + offset + phase, 1.4, 0.55);
+  }
+
+  // Nucleo bianco e impulsi che corrono lungo il raggio
+  ctx.strokeStyle = '#ffffff';
+  strokePath(path, 2.4, 0.9);
+  ctx.setLineDash([14, 46]);
+  ctx.lineDashOffset = -time * 320;
+  strokePath(path, 4.5, 0.45);
+  ctx.setLineDash([]);
+}
+
+// Fulmine: una saetta frastagliata che cambia forma a scatti, con un secondo filo e qualche ramo
+function drawLightningBeam(laser, color, time) {
+  if (!laser._bolt || time - laser._boltTime > 0.06) {
+    laser._boltTime = time;
+    laser._bolt = lightningAlongPath(laser.path, 0.12);
+    laser._bolt2 = lightningAlongPath(laser.path, 0.08);
+    laser._branches = lightningBranches(laser._bolt);
+  }
+
+  ctx.strokeStyle = color;
+  strokePath(laser.path, 22, 0.07);
+  strokePath(laser._bolt, 9, 0.22);
+  strokePath(laser._bolt2, 1.5, 0.55);
+  for (const branch of laser._branches) strokePath(branch, 1.6, 0.6);
+  ctx.strokeStyle = '#fffbe0';
+  strokePath(laser._bolt, 2.2, 1);
+}
+
+// Punto d'impatto: un bagliore che pulsa dove il raggio si ferma
+function drawBeamImpact(point, color, time) {
+  const radius = 16 + 4 * Math.sin(time * 14);
+  const glow = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
+  glow.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+  glow.addColorStop(0.35, withAlpha(color, 0.5));
+  glow.addColorStop(1, withAlpha(color, 0));
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, radius, 0, 2 * Math.PI);
+  ctx.fill();
+}
+
+function strokePath(points, width, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+  ctx.stroke();
+}
+
+// Elica: linea che oscilla attorno al percorso (sinusoide perpendicolare che scorre nel tempo)
+function strokeHelix(path, amplitude, wavelength, phase, width, alpha) {
+  if (amplitude <= 0) return;
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  let travelled = 0;
+  let first = true;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i], b = path[i + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len === 0) continue;
+    const nx = -(b.y - a.y) / len, ny = (b.x - a.x) / len;
+    for (let d = 0; d <= len; d += 5) {
+      // L'elica parte stretta dalla runa e si allarga nei primi 40 px
+      const grow = Math.min(1, (travelled + d) / 40);
+      const offset = amplitude * grow * Math.sin(((travelled + d) / wavelength) * Math.PI * 2 - phase);
+      const x = a.x + (b.x - a.x) * (d / len) + nx * offset;
+      const y = a.y + (b.y - a.y) * (d / len) + ny * offset;
+      if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+    }
+    travelled += len;
+  }
+  ctx.stroke();
+}
+
+// Saetta lungo un percorso: spostamento del punto medio, ricorsivo, proporzionale alla lunghezza
+const LIGHTNING_MAX_OFFSET = 9;
+
+function lightningAlongPath(path, roughness) {
+  const result = [path[0]];
+  for (let i = 0; i < path.length - 1; i++) {
+    lightningSegment(path[i], path[i + 1], roughness, result);
+  }
+  return result;
+}
+
+function lightningSegment(a, b, roughness, out) {
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (len < 14) {
+    out.push(b);
+    return;
+  }
+  // Scostamento limitato: la saetta resta vicina al raggio vero (quello che colpisce)
+  const offset = (Math.random() - 0.5) * 2 * Math.min(len * roughness, LIGHTNING_MAX_OFFSET);
+  const mid = {
+    x: (a.x + b.x) / 2 - (b.y - a.y) / len * offset,
+    y: (a.y + b.y) / 2 + (b.x - a.x) / len * offset
+  };
+  lightningSegment(a, mid, roughness, out);
+  lightningSegment(mid, b, roughness, out);
+}
+
+// Brevi rami che si staccano dalla saetta principale
+function lightningBranches(bolt) {
+  const branches = [];
+  const count = Math.min(4, Math.floor(bolt.length / 25));
+  for (let i = 0; i < count; i++) {
+    const index = 1 + Math.floor(Math.random() * (bolt.length - 2));
+    const from = bolt[index], next = bolt[index + 1];
+    const angle = Math.atan2(next.y - from.y, next.x - from.x) + (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.5);
+    const length = 25 + Math.random() * 45;
+    const to = { x: from.x + Math.cos(angle) * length, y: from.y + Math.sin(angle) * length };
+    const branch = [from];
+    lightningSegment(from, to, 0.18, branch);
+    branches.push(branch);
+  }
+  return branches;
+}
+
+// Schiarisce un colore verso il bianco (amount 0..1)
+function lightenColor(color, amount) {
+  const [r, g, b] = parseColor(color).rgb.split(',').map(Number);
+  const mix = (v) => Math.round(v + (255 - v) * amount);
+  return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
+}
 
 // ============================================================
 // PROIEZIONE: SPAZIALE (aree permanenti)
@@ -765,7 +1317,6 @@ function registerLocalArea({ id, polygon, color, element, variant = null, expire
     manaDrain: Math.max(0.01, size / 10000 * 0.01), // mana per frame
     affinityTimer: 0
   });
-  audioManager.setSpatialSpellLoopPlaying(element === 'spaziale' ? null : element, true);
   return size;
 }
 
@@ -817,13 +1368,6 @@ function notifyAreaRemoval(area) {
   }
 }
 
-// Ferma il suono dell'elemento solo se non restano altre aree dello stesso elemento
-function stopSpatialLoopIfUnused(element) {
-  if (!permanentSpazialeAreas.some(a => a.element === element)) {
-    audioManager.setSpatialSpellLoopPlaying(element === 'spaziale' ? null : element, false);
-  }
-}
-
 function removeSpazialeAreaById(id) {
   const index = permanentSpazialeAreas.findIndex(a => a.id === id);
   if (index !== -1) removeSpazialeAreaAt(index);
@@ -832,24 +1376,22 @@ function removeSpazialeAreaById(id) {
 function removeSpazialeAreaAt(index) {
   const [area] = permanentSpazialeAreas.splice(index, 1);
   notifyAreaRemoval(area);
-  stopSpatialLoopIfUnused(area.element);
 }
 
 function removeAllSpazialeAreas() {
   const removed = permanentSpazialeAreas;
   permanentSpazialeAreas = [];
   removed.forEach(notifyAreaRemoval);
-  new Set(removed.map(a => a.element)).forEach(stopSpatialLoopIfUnused);
 }
 
 // Le aree consumano mana finché esistono; se il mana finisce svaniscono tutte
 function updateSpazialeAreas() {
   if (permanentSpazialeAreas.length === 0) return;
 
-  const deltaTime = 1 / 60;
+  const deltaTime = frameMs / 1000;
   let manaToDrain = 0;
   for (const area of permanentSpazialeAreas) {
-    manaToDrain += area.manaDrain * (1 - playerStats.riduzioneMana);
+    manaToDrain += area.manaDrain * frameScale * (1 - playerStats.riduzioneMana);
     area.affinityTimer += deltaTime;
     if (area.affinityTimer >= 1) {
       area.affinityTimer -= 1;
@@ -922,25 +1464,31 @@ function drawPolygon(polygon, color, { fill = true, stroke = true } = {}) {
 // INTERAZIONI TRA MAGIE (regole in spell-interactions.js)
 // ============================================================
 // Ogni client simula le interazioni su tutte le magie che vede (anche quelle dell'avversario).
-// Una AREA però viene modificata solo dal suo proprietario, che avvisa l'avversario:
-// così i due client non si contraddicono. I proiettili si risolvono su entrambi i lati.
+// Una magia PERMANENTE (area o laser) però viene modificata solo dal suo proprietario, che avvisa
+// l'avversario: così i due client non si contraddicono. I proiettili si risolvono su entrambi i lati.
 
-const MAGMA_TICK_MS = 500;
+const VARIANT_TICK_MS = 500;
 const MAGMA_AREA_DAMAGE = 0.5;
 const MAGMA_TRAIL_DAMAGE = 1;
 const MAGMA_TRAIL_RADIUS = 28;
+const CHARGED_DAMAGE = 0.75;          // magie elettrificate in campo: danno a entrambi i caster
+const CHARGED_SHOCK_DAMAGE = 1.5;     // proiettile elettrificato che passa vicino a un caster
+const CHARGED_SHOCK_RADIUS = 70;
 const PROJECTILE_COLLISION_RADIUS = 24;
+const PARALYSIS_CHECK_MS = 500;
 
-const interactedAreaPairs = new Set();
+const interactedAreaPairs = new Set(); // coppie di magie permanenti (aree e laser) che hanno già interagito
 let magmaTrail = [];          // { x, y, expiresAt, atk }: pozze lasciate dai proiettili di magma
-let lastMagmaDamage = 0;
+let lastVariantDamage = 0;
+let lastLaserDamage = 0;
+let lastParalysisCheck = 0;
 
 // ATK di chi ha lanciato una magia ('local' | 'opponent' | 'training')
 function getOwnerAtk(owner) {
   return owner === 'opponent' && pvpManager ? pvpManager.opponentAtk : playerStats.atk;
 }
 
-// Il magma nasce da fuoco + terra: il suo danno usa la media degli ATK dei due caster
+// Magma (fuoco + terra) ed elettrificazione (fulmine + acqua) usano la media degli ATK dei due caster
 function averageAtk(ownerA, ownerB) {
   return (getOwnerAtk(ownerA) + getOwnerAtk(ownerB)) / 2;
 }
@@ -949,13 +1497,22 @@ function getOpponentAreas() {
   return pvpManager ? pvpManager.opponentSpazialeAreas : [];
 }
 
-function isVariantAlive(area, variant, now = Date.now()) {
-  return area.variant === variant && (!area.expiresAt || area.expiresAt > now);
+// true se l'area o il laser con questo id è nostro (serve al PvPManager per ignorare
+// aggiornamenti dell'avversario su magie che non gli appartengono più)
+function ownsSpell(id) {
+  return permanentSpazialeAreas.some(a => a.id === id) || lasers.some(l => l.id === id);
+}
+
+function isVariantAlive(spell, variant, now = Date.now()) {
+  return spell.variant === variant && (!spell.expiresAt || spell.expiresAt > now);
+}
+
+function getAllPermanentSpells() {
+  return [...permanentSpazialeAreas, ...getOpponentAreas(), ...lasers, ...getOpponentLasers()];
 }
 
 function isLushActive() {
-  return permanentSpazialeAreas.some(a => isVariantAlive(a, 'lush'))
-    || getOpponentAreas().some(a => isVariantAlive(a, 'lush'));
+  return getAllPermanentSpells().some(s => isVariantAlive(s, 'lush'));
 }
 
 function damageLocalPlayer(amount, element = null) {
@@ -980,57 +1537,108 @@ function sendAreaUpdate(area, extra = {}) {
     variant: area.variant,
     expiresIn: area.expiresAt ? Math.max(0, area.expiresAt - Date.now()) : null,
     damagePerTick: getAreaDamagePerTick(area.points, area.element),
-    magmaAtk: area.magmaAtk,
+    magmaAtk: area.variantAtk, // campo storico: ATK medio di magma ed elettrificazione
     ...extra
   });
 }
 
+// Lush / magma / charged: la magia cambia stato per un tempo limitato, poi sparisce
+function applyVariant(spell, effect, causerOwner) {
+  spell.variant = effect;
+  // Le magie modificate qui sono sempre nostre: l'altro caster è chi ha causato l'effetto
+  if (effect === 'magma' || effect === 'charged') spell.variantAtk = averageAtk('local', causerOwner);
+  spell.expiresAt = Date.now() + VARIANT_DURATIONS[effect];
+}
+
 // causerOwner: 'local' | 'opponent' | 'training' = chi ha lanciato la magia che ha provocato l'effetto
 function applyAreaEffect(area, effect, causerOwner) {
+  // Un'area già ceduta o rimossa non è più nostra: niente aggiornamenti "fantasma" all'avversario
+  if (!permanentSpazialeAreas.includes(area)) return;
+
   if (effect === 'remove') {
     removeSpazialeAreaById(area.id);
     return;
   }
 
-  if (effect === 'lush' || effect === 'magma') {
-    area.variant = effect;
-    // Le aree modificate qui sono sempre nostre: l'altro caster è chi ha causato l'effetto
-    if (effect === 'magma') area.magmaAtk = averageAtk('local', causerOwner);
+  if (VARIANT_DURATIONS[effect]) {
+    applyVariant(area, effect, causerOwner);
     area.color = VARIANT_COLORS[effect];
-    area.expiresAt = Date.now() + (effect === 'lush' ? LUSH_DURATION_MS : MAGMA_DURATION_MS);
     sendAreaUpdate(area);
     return;
   }
 
   if (effect === 'ignite') {
-    const previousElement = area.element;
     area.element = 'fuoco';
     area.color = getElementColor('fuoco');
 
-    // L'area incendiata passa a chi ha lanciato il fuoco
+    // L'area incendiata passa a chi ha lanciato il fuoco (che da ora ne paga il mana e può annullarla)
     if (causerOwner === 'opponent' && pvpManager && pvpManager.isActive()) {
       permanentSpazialeAreas = permanentSpazialeAreas.filter(a => a.id !== area.id);
-      stopSpatialLoopIfUnused(previousElement);
-      pvpManager.registerOpponentArea({ id: area.id, points: area.points, element: 'fuoco' });
+      pvpManager.registerOpponentArea({
+        id: area.id,
+        points: area.points,
+        element: 'fuoco'
+      });
       sendAreaUpdate(area, { giveToReceiver: true });
     } else {
-      stopSpatialLoopIfUnused(previousElement);
-      audioManager.setSpatialSpellLoopPlaying('fuoco', true);
       sendAreaUpdate(area);
     }
   }
 }
 
-// L'avversario ci cede un'area (la sua aria è stata incendiata dal nostro fuoco)
-function receiveGrantedArea(data) {
-  if (permanentSpazialeAreas.some(a => a.id === data.areaId)) return;
+function applyLaserEffect(laser, effect, causerOwner) {
+  if (!lasers.includes(laser)) return;
+
+  if (effect === 'remove') {
+    removeLaserById(laser.id);
+    return;
+  }
+
+  if (VARIANT_DURATIONS[effect]) {
+    applyVariant(laser, effect, causerOwner);
+    sendLaserUpdate(laser);
+    return;
+  }
+
+  if (effect === 'ignite') {
+    laser.element = 'fuoco';
+    // Come per le aree: il laser incendiato passa a chi ha lanciato il fuoco
+    if (causerOwner === 'opponent' && pvpManager && pvpManager.isActive()) {
+      lasers = lasers.filter(l => l.id !== laser.id);
+      pvpManager.registerOpponentLaser({ id: laser.id, origin: laser.origin, dir: laser.dir, element: 'fuoco' });
+      sendLaserUpdate(laser, { giveToReceiver: true });
+    } else {
+      sendLaserUpdate(laser);
+    }
+  }
+}
+
+// L'avversario ci cede una magia permanente (la sua aria / il suo laser incendiati dal nostro fuoco)
+function receiveGrantedSpell(data) {
+  if (ownsSpell(data.areaId) || !data.polygonPoints) return;
+  const expiresAt = data.expiresIn ? Date.now() + data.expiresIn : null;
+
+  if (data.spellType === 'laser') {
+    const [origin, through] = data.polygonPoints;
+    const length = Math.hypot(through.x - origin.x, through.y - origin.y) || 1;
+    registerLocalLaser({
+      id: data.areaId,
+      origin,
+      dir: { x: (through.x - origin.x) / length, y: (through.y - origin.y) / length },
+      element: data.element || null,
+      variant: data.variant || null,
+      expiresAt
+    });
+    return;
+  }
+
   registerLocalArea({
     id: data.areaId,
     polygon: data.polygonPoints,
     color: getElementColor(data.element),
     element: data.element,
     variant: data.variant,
-    expiresAt: data.expiresIn ? Date.now() + data.expiresIn : null
+    expiresAt
   });
 }
 
@@ -1044,6 +1652,10 @@ function applyProjectileEffect(projectile, effect, otherOwner) {
   } else if (effect === 'magma') {
     projectile.magma = true;
     projectile.magmaAtk = averageAtk(projectile.owner, otherOwner);
+  } else if (effect === 'charged') {
+    projectile.charged = true;
+    projectile.chargedAtk = averageAtk(projectile.owner, otherOwner);
+    projectile.color = VARIANT_COLORS.charged;
   }
 }
 
@@ -1079,7 +1691,13 @@ function updateProjectileAreaInteractions() {
         applyProjectileEffect(p, result.a, owner);
         if (owner === 'local' && result.b) applyAreaEffect(area, result.b, p.owner);
       } else if (blocksProjectiles(area)) {
-        p.hit = true; // la terra blocca ciò che non reagisce con lei
+        // La terra blocca ciò che non reagisce con lei; il fulmine invece ci rimbalza sopra
+        if (p.bounces > 0) {
+          bounceOffPolygon(p, area.points);
+          p.inside.delete(area.id);
+        } else {
+          p.hit = true;
+        }
       }
       if (p.hit) break;
     }
@@ -1103,6 +1721,85 @@ function updateProjectileCollisions() {
       if (a.hit) break;
     }
   }
+}
+
+// Un proiettile che ATTRAVERSA un laser interagisce con esso (una volta per laser).
+// I laser non fermano i proiettili: se non reagiscono, si incrociano e basta.
+function updateProjectileLaserInteractions() {
+  const allLasers = [
+    ...lasers.map(laser => ({ laser, owner: 'local' })),
+    ...getOpponentLasers().map(laser => ({ laser, owner: 'opponent' }))
+  ];
+  if (allLasers.length === 0) return;
+
+  for (const p of projectiles) {
+    if (p.hit) continue;
+    p.crossedLasers = p.crossedLasers || new Set();
+    for (const { laser, owner } of allLasers) {
+      if (p.crossedLasers.has(laser.id)) continue;
+      if (distanceToPath(p, laser.path) > LASER_HIT_RADIUS) continue;
+      p.crossedLasers.add(laser.id);
+
+      const result = getInteraction({ element: p.element }, laserMagic(laser));
+      applyProjectileEffect(p, result.a, owner);
+      if (owner === 'local' && result.b) applyLaserEffect(laser, result.b, p.owner);
+      if (p.hit) break;
+    }
+  }
+}
+
+// Coppie di magie permanenti (area-area, laser-area, laser-laser) che si toccano:
+// ognuno modifica solo le proprie, una sola volta per coppia
+function updatePermanentSpellInteractions() {
+  const spells = [
+    ...permanentSpazialeAreas.map(spell => ({ spell, kind: 'area', owner: 'local' })),
+    ...lasers.map(spell => ({ spell, kind: 'laser', owner: 'local' })),
+    ...getOpponentAreas().map(spell => ({ spell, kind: 'area', owner: 'opponent' })),
+    ...getOpponentLasers().map(spell => ({ spell, kind: 'laser', owner: 'opponent' }))
+  ];
+
+  for (let i = 0; i < spells.length; i++) {
+    const a = spells[i];
+    if (a.owner !== 'local') break; // le coppie tra magie dell'avversario le gestisce lui
+    for (let j = i + 1; j < spells.length; j++) {
+      const b = spells[j];
+      // Una delle due può essere stata ceduta o rimossa poco fa da questo stesso ciclo
+      if (!isStillOwned(a) || (b.owner === 'local' && !isStillOwned(b))) continue;
+
+      const key = a.spell.id < b.spell.id ? `${a.spell.id}|${b.spell.id}` : `${b.spell.id}|${a.spell.id}`;
+      if (interactedAreaPairs.has(key)) continue;
+
+      const result = getInteraction(spellMagic(a), spellMagic(b));
+      if (!result.a && !result.b) continue;
+      if (!spellsTouch(a, b)) continue;
+
+      interactedAreaPairs.add(key);
+      applyPermanentEffect(a, result.a, b.owner);
+      if (b.owner === 'local') applyPermanentEffect(b, result.b, 'local');
+    }
+  }
+}
+
+function isStillOwned({ spell, kind }) {
+  return kind === 'area' ? permanentSpazialeAreas.includes(spell) : lasers.includes(spell);
+}
+
+function spellMagic({ spell }) {
+  return { element: spell.element, variant: spell.variant };
+}
+
+function applyPermanentEffect({ spell, kind }, effect, causerOwner) {
+  if (!effect) return;
+  if (kind === 'area') applyAreaEffect(spell, effect, causerOwner);
+  else applyLaserEffect(spell, effect, causerOwner);
+}
+
+function spellsTouch(a, b) {
+  if (a.kind === 'area' && b.kind === 'area') return polygonsOverlap(a.spell.points, b.spell.points);
+  if (a.kind === 'laser' && b.kind === 'laser') return pathsIntersect(a.spell.path, b.spell.path);
+  const laser = a.kind === 'laser' ? a.spell : b.spell;
+  const area = a.kind === 'area' ? a.spell : b.spell;
+  return pathTouchesPolygon(laser.path, area.points);
 }
 
 function polygonBounds(points) {
@@ -1129,38 +1826,30 @@ function polygonsOverlap(pointsA, pointsB) {
   return anyInside(pointsA, pointsB) || anyInside(pointsB, pointsA);
 }
 
-// Aree che si sovrappongono: ognuno modifica solo le proprie, una sola volta per coppia
-function updateAreaInteractions() {
-  const mine = permanentSpazialeAreas.slice();
-  const theirs = getOpponentAreas().slice();
+// ⚡ Paralisi: chi sta dentro un'area di fulmine avversaria resta fermo (lo decide il suo client,
+// in pvp-manager.js). Qui mostriamo lo stesso effetto sull'avversario dentro le nostre aree.
+function updateParalysisVisuals(now) {
+  if (!pvpManager || !pvpManager.isActive() || now - lastParalysisCheck < PARALYSIS_CHECK_MS) return;
+  lastParalysisCheck = now;
+  const body = pvpManager.opponent.position;
+  const inside = permanentSpazialeAreas.some(a => a.element === 'fulmine' && !a.variant && pointInPolygon(body, a.points));
+  if (inside) applyParalysis('opponent');
+}
 
-  for (let i = 0; i < mine.length; i++) {
-    const a = mine[i];
-    const candidates = [
-      ...mine.slice(i + 1).map(area => ({ area, owner: 'local' })),
-      ...theirs.map(area => ({ area, owner: 'opponent' }))
-    ];
-
-    for (const { area: b, owner } of candidates) {
-      const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
-      if (interactedAreaPairs.has(key)) continue;
-
-      const result = getInteraction(
-        { element: a.element, variant: a.variant },
-        { element: b.element, variant: b.variant }
-      );
-      if (!result.a && !result.b) continue;
-      if (!polygonsOverlap(a.points, b.points)) continue;
-
-      interactedAreaPairs.add(key);
-      if (result.a) applyAreaEffect(a, result.a, owner);
-      if (result.b && owner === 'local') applyAreaEffect(b, result.b, 'local');
+// Chi tocca un laser avversario subisce danno ogni 0.5 s (lo calcola il client di chi viene colpito)
+function updateLaserDamage(now) {
+  if (now - lastLaserDamage < LASER_DAMAGE_TICK_MS) return;
+  lastLaserDamage = now;
+  for (const laser of getOpponentLasers()) {
+    if (laser.variant) continue; // le varianti hanno i loro effetti
+    if (distanceToPath(playerBody, laser.path) <= LASER_HIT_RADIUS) {
+      damageLocalPlayer(laser.damagePerTick || BASE_DAMAGE.laser, laser.element);
     }
   }
 }
 
-// Magma: scia dei proiettili, scadenza delle aree trasformate e danno ai caster
-function updateMagma() {
+// Magma ed elettrificazione: scie, scadenza delle magie trasformate e danno ai caster
+function updateVariantEffects() {
   const now = Date.now();
 
   for (const p of projectiles) {
@@ -1175,31 +1864,53 @@ function updateMagma() {
   permanentSpazialeAreas
     .filter(a => a.expiresAt && a.expiresAt <= now)
     .forEach(a => removeSpazialeAreaById(a.id));
+  lasers
+    .filter(l => l.expiresAt && l.expiresAt <= now)
+    .forEach(l => removeLaserById(l.id));
 
-  if (now - lastMagmaDamage < MAGMA_TICK_MS) return;
-  // Il danno scala con la media degli ATK dei due caster (fuoco e terra);
+  updateParalysisVisuals(now);
+  updateLaserDamage(now);
+
+  if (now - lastVariantDamage < VARIANT_TICK_MS) return;
+  // Il danno scala con la media degli ATK dei due caster che hanno creato la variante;
   // con più fonti attive conta la più forte
-  let damage = 0;
-  const magmaAreas = [...permanentSpazialeAreas, ...getOpponentAreas()].filter(a => isVariantAlive(a, 'magma', now));
-  if (magmaAreas.length > 0) { // il magma in campo ferisce entrambi i caster
-    const atk = Math.max(...magmaAreas.map(a => a.magmaAtk || playerStats.atk));
-    damage += MAGMA_AREA_DAMAGE * getAtkMultiplier(atk);
-  }
-  const touchedTrail = magmaTrail.filter(t => Math.hypot(t.x - virtualMouse.x, t.y - virtualMouse.y) < MAGMA_TRAIL_RADIUS);
+  const spells = getAllPermanentSpells();
+  const strongest = (variant) => {
+    const alive = spells.filter(s => isVariantAlive(s, variant, now));
+    return alive.length ? Math.max(...alive.map(s => s.variantAtk || playerStats.atk)) : 0;
+  };
+
+  let fireDamage = 0;
+  const magmaAtk = strongest('magma');
+  if (magmaAtk) fireDamage += MAGMA_AREA_DAMAGE * getAtkMultiplier(magmaAtk); // il magma in campo ferisce entrambi
+  const touchedTrail = magmaTrail.filter(t => Math.hypot(t.x - playerBody.x, t.y - playerBody.y) < MAGMA_TRAIL_RADIUS);
   if (touchedTrail.length > 0) {
-    damage += MAGMA_TRAIL_DAMAGE * getAtkMultiplier(Math.max(...touchedTrail.map(t => t.atk)));
+    fireDamage += MAGMA_TRAIL_DAMAGE * getAtkMultiplier(Math.max(...touchedTrail.map(t => t.atk)));
   }
-  if (damage > 0) {
-    lastMagmaDamage = now;
-    damageLocalPlayer(damage, 'fuoco'); // il magma brucia: conta la difesa dal fuoco
+
+  let shockDamage = 0;
+  const chargedAtk = strongest('charged');
+  if (chargedAtk) shockDamage += CHARGED_DAMAGE * getAtkMultiplier(chargedAtk); // l'acqua elettrificata ferisce entrambi
+  const shocking = projectiles.filter(p => p.charged && !p.hit &&
+    Math.hypot(p.x - playerBody.x, p.y - playerBody.y) < CHARGED_SHOCK_RADIUS);
+  if (shocking.length > 0) {
+    shockDamage += CHARGED_SHOCK_DAMAGE * getAtkMultiplier(Math.max(...shocking.map(p => p.chargedAtk || playerStats.atk)));
+  }
+
+  if (fireDamage > 0 || shockDamage > 0) {
+    lastVariantDamage = now;
+    if (fireDamage > 0) damageLocalPlayer(fireDamage, 'fuoco');      // il magma brucia: conta la difesa dal fuoco
+    if (shockDamage > 0) damageLocalPlayer(shockDamage, 'fulmine');
   }
 }
 
 function updateMagicInteractions() {
+  updateLasers();
   updateProjectileAreaInteractions();
+  updateProjectileLaserInteractions();
   updateProjectileCollisions();
-  updateAreaInteractions();
-  updateMagma();
+  updatePermanentSpellInteractions();
+  updateVariantEffects();
 }
 
 function drawMagmaTrail() {
@@ -1300,6 +2011,34 @@ function showElementEffect(type, position) {
         });
       }
       break;
+    case 'fulmine':
+      // Scariche che esplodono verso l'esterno, con un lampo al centro
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 5 + 2;
+        newParticles.push({
+          x: x + Math.cos(angle) * 6,
+          y: y + Math.sin(angle) * 6,
+          radius: Math.random() * 2.5 + 1.5,
+          alpha: 0.9,
+          dx: Math.cos(angle) * speed,
+          dy: Math.sin(angle) * speed,
+          element: 'fulmine',
+          angle,
+          color: `rgba(255, 255, ${120 + Math.random() * 135}, ${Math.random() * 0.4 + 0.6})`
+        });
+      }
+      for (let i = 0; i < 6; i++) {
+        newParticles.push({
+          x, y,
+          radius: 14 - i * 2,
+          alpha: 0.5,
+          dx: 0,
+          dy: 0,
+          color: 'rgba(255, 255, 220, 0.5)'
+        });
+      }
+      break;
   }
   activeMagicParticles.push(...newParticles);
 }
@@ -1384,20 +2123,21 @@ function spendMana(amount) {
 function triggerBurnout() {
   setManaValues({ burnout: true, burnoutT: BURNOUT_FRAMES, current: 0 });
   removeAllSpazialeAreas();
+  removeAllLasers();
 }
 
 function regenMana() {
   let { mana, manaMax, manaRecoverSpeed, inBurnout, burnoutTimer } = getManaValues();
   if (inBurnout) {
-    burnoutTimer--;
+    burnoutTimer -= frameScale;
     if (burnoutTimer <= 0) {
       inBurnout = false;
       mana = manaMax * 0.2;
     }
   } else if (mana < manaMax) {
-    // Aree rigogliose in campo: rigenerazione aumentata per entrambi i caster
+    // Magie rigogliose in campo: rigenerazione aumentata per entrambi i caster
     const regenMultiplier = isLushActive() ? LUSH_MANA_REGEN_MULTIPLIER : 1;
-    mana = Math.min(manaMax, mana + manaRecoverSpeed * regenMultiplier);
+    mana = Math.min(manaMax, mana + manaRecoverSpeed * regenMultiplier * frameScale);
   }
   setManaValues({ current: mana, burnout: inBurnout, burnoutT: burnoutTimer });
 }
@@ -1522,29 +2262,65 @@ function updateVirtualMouse() {
 
   virtualMouse.x = Math.max(0, Math.min(world.width, virtualMouse.x));
   virtualMouse.y = Math.max(0, Math.min(world.height, virtualMouse.y));
+}
 
-  virtualMouseEntity.x = virtualMouse.x;
-  virtualMouseEntity.y = virtualMouse.y;
-  if (dist > 0) {
-    virtualMouseEntity.velocity.x = (dx / dist) * speed;
-    virtualMouseEntity.velocity.y = (dy / dist) * speed;
+// ⚡ Il corpo segue il mouse virtuale, tranne durante la paralisi: resta fermo e,
+// finita la paralisi, raggiunge il cursore alla velocità massima normale
+function updatePlayerBody() {
+  const prevX = playerBody.x;
+  const prevY = playerBody.y;
+  if (playerBody.attached) {
+    playerBody.x = virtualMouse.x;
+    playerBody.y = virtualMouse.y;
+  } else if (!playerStatus.paralyzed && !playerStatus.stunned) {
+    const dx = virtualMouse.x - playerBody.x;
+    const dy = virtualMouse.y - playerBody.y;
+    const dist = Math.hypot(dx, dy);
+    const step = 40 * playerStatus.speedMultiplier;
+    if (dist <= step) {
+      playerBody.attached = true;
+      playerBody.x = virtualMouse.x;
+      playerBody.y = virtualMouse.y;
+    } else {
+      playerBody.x += (dx / dist) * step;
+      playerBody.y += (dy / dist) * step;
+    }
+  }
+
+  virtualMouseEntity.x = playerBody.x;
+  virtualMouseEntity.y = playerBody.y;
+  const moved = Math.hypot(playerBody.x - prevX, playerBody.y - prevY);
+  if (moved > 0) {
+    virtualMouseEntity.velocity.x = playerBody.x - prevX;
+    virtualMouseEntity.velocity.y = playerBody.y - prevY;
   }
 }
 
-function drawVirtualMouse() {
+function drawReticle(x, y, color, alpha = 1) {
   ctx.save();
+  ctx.globalAlpha = alpha;
   ctx.beginPath();
-  ctx.arc(virtualMouse.x, virtualMouse.y, 12, 0, 2 * Math.PI);
-  ctx.strokeStyle = "#00e0ff";
+  ctx.arc(x, y, 12, 0, 2 * Math.PI);
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(virtualMouse.x - 6, virtualMouse.y);
-  ctx.lineTo(virtualMouse.x + 6, virtualMouse.y);
-  ctx.moveTo(virtualMouse.x, virtualMouse.y - 6);
-  ctx.lineTo(virtualMouse.x, virtualMouse.y + 6);
+  ctx.moveTo(x - 6, y);
+  ctx.lineTo(x + 6, y);
+  ctx.moveTo(x, y - 6);
+  ctx.lineTo(x, y + 6);
   ctx.stroke();
   ctx.restore();
+}
+
+function drawVirtualMouse() {
+  if (playerBody.attached) {
+    drawReticle(virtualMouse.x, virtualMouse.y, "#00e0ff");
+    return;
+  }
+  // Paralizzato: il corpo è fermo, il cursore "virtuale" serve solo a disegnare
+  drawReticle(playerBody.x, playerBody.y, getElementColor('fulmine'));
+  drawReticle(virtualMouse.x, virtualMouse.y, "#00e0ff", 0.45);
 }
 
 // Chiamata da collision-system.js quando due entità si scontrano
@@ -1621,6 +2397,79 @@ function polygonCenter(polygon) {
   };
 }
 
+// Riflette il vettore v rispetto a una normale (anche non normalizzata)
+function reflect(v, normal) {
+  const len = Math.hypot(normal.x, normal.y) || 1;
+  const nx = normal.x / len, ny = normal.y / len;
+  const dot = v.x * nx + v.y * ny;
+  return { x: v.x - 2 * dot * nx, y: v.y - 2 * dot * ny };
+}
+
+// Raggio pos + dir*t contro il segmento a-b: { t, normal } oppure null
+function intersectRayWithSegment(pos, dir, a, b) {
+  const ex = b.x - a.x, ey = b.y - a.y;
+  const denom = dir.x * ey - dir.y * ex;
+  if (Math.abs(denom) < 1e-9) return null;
+  const qx = a.x - pos.x, qy = a.y - pos.y;
+  const t = (qx * ey - qy * ex) / denom;
+  const u = (qx * dir.y - qy * dir.x) / denom;
+  if (t <= 1e-6 || u < 0 || u > 1) return null;
+  return { t, normal: { x: -ey, y: ex } };
+}
+
+// Segmento p-q contro un poligono: primo lato attraversato { t (0..1 lungo p-q), normal } oppure null
+function intersectSegmentWithPolygon(p, q, polygon) {
+  const dir = { x: q.x - p.x, y: q.y - p.y };
+  let best = null;
+  for (let i = 0; i < polygon.length - 1; i++) {
+    const hit = intersectRayWithSegment(p, dir, polygon[i], polygon[i + 1]);
+    if (hit && hit.t <= 1 && (!best || hit.t < best.t)) best = hit;
+  }
+  return best;
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const hit = intersectRayWithSegment(a, { x: b.x - a.x, y: b.y - a.y }, c, d);
+  return !!hit && hit.t <= 1;
+}
+
+function distanceToSegment(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy;
+  const t = lenSq ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq)) : 0;
+  return Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t));
+}
+
+// Distanza di un punto da una spezzata (il percorso di un laser)
+function distanceToPath(p, path) {
+  if (!path || path.length < 2) return Infinity;
+  let best = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    best = Math.min(best, distanceToSegment(p, path[i], path[i + 1]));
+  }
+  return best;
+}
+
+function pathsIntersect(pathA, pathB) {
+  if (!pathA || !pathB) return false;
+  for (let i = 0; i < pathA.length - 1; i++) {
+    for (let j = 0; j < pathB.length - 1; j++) {
+      if (segmentsIntersect(pathA[i], pathA[i + 1], pathB[j], pathB[j + 1])) return true;
+    }
+  }
+  return false;
+}
+
+// Il laser tocca un'area se un suo tratto ne attraversa il bordo o se un suo vertice è dentro
+function pathTouchesPolygon(path, polygon) {
+  if (!path || path.length < 2) return false;
+  if (path.some(p => pointInPolygon(p, polygon))) return true;
+  for (let i = 0; i < path.length - 1; i++) {
+    if (intersectSegmentWithPolygon(path[i], path[i + 1], polygon)) return true;
+  }
+  return false;
+}
+
 
 // ============================================================
 // LOOP PRINCIPALE
@@ -1682,7 +2531,38 @@ function renderAreaShaders() {
   areaShader.render(areas, t, clip);
 }
 
+// Suoni continui delle magie in campo, nostre e dell'avversario: un loop per elemento delle aree,
+// uno per elemento dei laser (il suono di accensione è l'inizio del loop) e quello dei cerchi magici
+const activeSpatialLoops = new Set();
+function updatePermanentSpellSounds() {
+  const wanted = new Set([...permanentSpazialeAreas, ...getOpponentAreas()]
+    .map(a => a.element)
+    .filter(isElement));
+  for (const element of ELEMENTS) {
+    const playing = activeSpatialLoops.has(element);
+    if (wanted.has(element) === playing) continue;
+    audioManager.setSpatialSpellLoopPlaying(element, !playing);
+    if (playing) activeSpatialLoops.delete(element);
+    else activeSpatialLoops.add(element);
+  }
+  const laserElements = new Set([...lasers, ...getOpponentLasers()].map(l => l.element || null));
+  for (const element of [null, ...ELEMENTS]) {
+    audioManager.setLaserLoopPlaying(element, laserElements.has(element));
+  }
+  const opponentCircle = pvpManager && pvpManager.isActive() && pvpManager.opponent.magicCircle;
+  audioManager.setMagicCircleLoopPlaying(!!magicCircle || !!opponentCircle);
+}
+
+// Tempo reale dall'ultimo frame (limitato, così una pausa della scheda non fa "saltare" le magie)
+function updateFrameTime() {
+  const now = performance.now();
+  frameMs = Math.min(now - lastFrameTime, FRAME_MS * 3);
+  frameScale = frameMs / FRAME_MS;
+  lastFrameTime = now;
+}
+
 function animate() {
+  updateFrameTime();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
   applyCameraShake(ctx);
@@ -1690,8 +2570,9 @@ function animate() {
   enterWorldSpace();
   renderAreaShaders();
 
-  updateStatusEffects(1 / 60);
+  updateStatusEffects(frameMs / 1000);
   updateVirtualMouse();
+  updatePlayerBody();
   globalCollisionSystem.update();
   updateCollisionSparks();
   drawVirtualMouse();
@@ -1709,6 +2590,7 @@ function animate() {
   if (pvpManager && pvpManager.isActive()) {
     pvpManager.syncWithMainGame({
       virtualMouse,
+      playerBody,
       projectiles,
       magicCircle,
       activeMagicParticles,
@@ -1720,14 +2602,15 @@ function animate() {
 
   drawCollisionSparks();
   drawMagicCircle();
-  audioManager.setMagicCircleLoopPlaying(!!magicCircle);
   drawNextChargeParticles();
   updateMagicInteractions();
   updateProjectiles();
   drawMagmaTrail();
   drawSpazialePolygon();
   drawPermanentSpazialeAreas();
+  drawLasers();
   updateSpazialeAreas();
+  updatePermanentSpellSounds();
 
   savePeriodically();
   regenMana();
@@ -1748,7 +2631,7 @@ function animate() {
   updateRedOverlay(health, maxHealth);
   drawRedOverlay(ctx, canvas);
 
-  circleRotation += 0.003;
+  circleRotation += 0.003 * frameScale;
   drawManaSegments();
   ctx.restore();
 

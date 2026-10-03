@@ -1,10 +1,9 @@
 // home.page.js - Schermata Home: navigazione, impostazioni, temi
-import { createUIThemeToggle, createColorThemeToggle, initColorTheme, initUITheme } from '../ui/theme.js';
+import { createColorThemeToggle, initColorTheme } from '../ui/theme.js';
 import { startFogBackground } from '../ui/fog-background.js';
 import { CURRENT_VERSION } from '../data/changelog.js';
 
 initColorTheme();
-initUITheme();
 
 const username = localStorage.getItem('currentPlayer');
 if (!username) {
@@ -32,7 +31,6 @@ document.getElementById('btn-settings').onclick = () => settingsModal.classList.
 document.getElementById('close-settings').onclick = () => settingsModal.classList.add('hidden');
 
 const themeContainer = document.getElementById('theme-toggle-container');
-themeContainer.appendChild(createUIThemeToggle());
 themeContainer.appendChild(createColorThemeToggle());
 
 // Numero particelle

@@ -24,7 +24,7 @@ Spellcasters/
 │   │   │   ├── dollar-recognizer.js, element-patterns.js, status-effects.js, ...
 │   │   │   └── entities/enemy.js
 │   │   ├── services/     ← config.js (URL server, Firebase), firebase.js, player-db.js
-│   │   └── ui/           ← theme.js (giorno/notte, Classic/Rework), fog-background.js
+│   │   └── ui/           ← theme.js (giorno/notte), fog-background.js
 │   ├── public/           ← file statici copiati così come sono: css/, sound/, img/
 │   └── dev/              ← pagine di sviluppo NON incluse nella build (preview pattern, prototipo Open World)
 └── server/
@@ -133,13 +133,21 @@ Proiezioni:
 - eccetto le interazioni precedentemente citate, la magia spaziale di terra blocca le proiezioni che entrano in contatto con essa
 - fulmine potenzia il danno delle magie di luce
 
-**Stato implementazione** (regole in `client/js/game/spell-interactions.js`, solo con gli elementi attuali; si applicano a proiettili e aree spaziali):
+**Stato implementazione** (regole in `client/js/game/spell-interactions.js`, solo con gli elementi attuali; si applicano a proiettili, laser e aree spaziali):
 
 - acqua spegne fuoco; fuoco incendia aria (l'area passa a chi ha lanciato il fuoco); aria dissolve acqua
 - acqua + terra = rigoglio (12 s, rigenerazione mana ×3 per entrambi); fuoco + terra = magma (5 s, danno a entrambi in base alla media degli ATK di chi ha lanciato fuoco e terra; i proiettili lasciano una scia di 2.5 s)
 - l'area di terra blocca i proiettili che non reagiscono con lei
 - extra: due proiettili avversari che si incrociano interagiscono tra loro; l'acqua raffredda il magma
 - l'esperienza si guadagna solo nelle partite PvP online (non in laboratorio né in training)
+- fulmine + acqua = elettrificata (4 s, danno a entrambi i caster in base alla media degli ATK; un proiettile elettrificato folgora chi gli passa vicino); l'aria ignora il fulmine; le proiezioni di terra attraversano le aree di fulmine
+- proiettili (max 4 volte) e laser (1 volta) di fulmine rimbalzano sui bordi dell'arena e sulle aree di terra; le aree di fulmine paralizzano (1.5 s, poi 1.5 s di immunità): il corpo resta fermo, il cursore si muove e si può disegnare
+- laser: magia permanente (0.15 mana ogni 0.1 s), parte da un punto fisso fino al bordo dell'arena, si ferma sulle aree di terra con cui non reagisce. Interagisce con proiettili (attraversandolo), aree e altri laser con le stesse regole delle aree (un laser d'aria incendiato passa a chi ha lanciato il fuoco). Danno a chi tocca il raggio ogni 0.5 s
+- annullamento con tasto destro / X, in ordine: laser sotto il mouse, area sotto il mouse, cerchio sotto il mouse (insieme a tutte le magie permanenti), altrimenti l'ultimo laser "semplice" (lanciato a vuoto)
+- non ancora: Luce, Oscurità, Trappola (e quindi "fulmine potenzia la luce" e lo scontro tra laser di luce e oscurità)
+- suoni dei laser: per ogni elemento `client/public/sound/sfx/lasr/<elemento>-lasr-init.wav` (suonato una volta all'accensione) seguito senza stacchi dal loop `<elemento>-lasr-cont.wav`. Il laser neutro usa `magk`; un elemento nuovo va aggiunto in `soundFiles` e `laserSoundTypes` di `audio-manager.js` (senza, usa i suoni neutri)
+- il ronzio delle aree di fulmine e il rimbalzo del fulmine sono generati via Web Audio (`createSynthesizedSounds`)
+- i file audio vanno messi in `client/public/sound/`, non in `dist/` (che viene svuotata a ogni build)
 
 **Progressione** (formule in `client/js/game/player-stats.js`):
 

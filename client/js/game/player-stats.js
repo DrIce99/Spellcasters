@@ -16,7 +16,8 @@ export const MANA_REGEN_PER_FRAME = 0.005;
 // Danni base con ATK = SKILLS.atk.base; scalano in proporzione all'ATK
 export const BASE_DAMAGE = {
   proiettile: 15,
-  spaziale: 0.5 // per tick (ogni 0.5 s) ogni 700 px² di area
+  spaziale: 0.5, // per tick (ogni 0.5 s) ogni 700 px² di area
+  laser: 4       // per tick (ogni 0.5 s) a chi tocca il raggio
 };
 export const SPATIAL_DAMAGE_AREA_UNIT = 700;
 
@@ -93,7 +94,8 @@ export function computePlayerStats(playerData = {}) {
 
     damage: {
       proiettile: BASE_DAMAGE.proiettile * atkMultiplier,
-      spaziale: BASE_DAMAGE.spaziale * atkMultiplier
+      spaziale: BASE_DAMAGE.spaziale * atkMultiplier,
+      laser: BASE_DAMAGE.laser * atkMultiplier
     },
     elementDmgBonus,
     elementDef,
