@@ -254,6 +254,11 @@ const RECIPES = {
     noise({ filter: 'highpass', freq: 5000, attack: 0.001, decay: 0.03, gain: 0.08, wet: 0.2 });
     bell(1318.5 * pitch, { decay: 0.6, gain: 0.07, metallic: true, wet: 0.6 });
   },
+  // Carica selezionata con la rotella: scatto di una ghiera runica (più acuto verso le ultime cariche)
+  select: ({ pitch = 1 } = {}) => {
+    noise({ filter: 'bandpass', freq: 4200 * pitch, q: 3, attack: 0.001, decay: 0.025, gain: 0.1, wet: 0.1 });
+    tone({ type: 'triangle', freq: 880 * pitch, to: 1100 * pitch, attack: 0.002, decay: 0.07, gain: 0.05, wet: 0.35 });
+  },
   // Simbolo non riconosciuto: sbuffo che si spegne
   fizzle: () => {
     noise({ filter: 'lowpass', freq: [2600, 2600, 180], q: 0.8, attack: 0.005, decay: 0.35, gain: 0.12, wet: 0.15 });

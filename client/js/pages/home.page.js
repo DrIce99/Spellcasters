@@ -42,6 +42,23 @@ window.addEventListener('keydown', (e) => {
 const themeContainer = document.getElementById('theme-toggle-container');
 themeContainer.appendChild(createColorThemeToggle());
 
+// Indicatore della carica selezionata nel cerchio magico (letto da engine.js all'avvio del gioco)
+const CHARGE_INDICATORS = ['none', 'particles', 'reticle', 'both'];
+const chargeIndicatorOptions = document.getElementById('charge-indicator-options');
+const showChargeIndicator = (value) => {
+    chargeIndicatorOptions.querySelectorAll('button').forEach(btn => {
+        btn.setAttribute('aria-checked', String(btn.dataset.value === value));
+    });
+};
+const savedIndicator = localStorage.getItem('chargeIndicator');
+showChargeIndicator(CHARGE_INDICATORS.includes(savedIndicator) ? savedIndicator : 'both');
+chargeIndicatorOptions.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-value]');
+    if (!btn) return;
+    localStorage.setItem('chargeIndicator', btn.dataset.value);
+    showChargeIndicator(btn.dataset.value);
+});
+
 // Numero particelle
 const particleCount = document.getElementById('particle-count');
 const particleCountValue = document.getElementById('particle-count-value');

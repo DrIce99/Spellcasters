@@ -39,6 +39,15 @@
         </label>
       </div>
       <div id="theme-toggle-container" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;"></div>
+      <div class="settings-option">
+        <span class="settings-option-label">Indicatore della carica selezionata nel cerchio:</span>
+        <div id="charge-indicator-options" class="segmented" role="radiogroup" aria-label="Indicatore della carica selezionata">
+          <button type="button" role="radio" data-value="none">Nessuno</button>
+          <button type="button" role="radio" data-value="particles">Particelle</button>
+          <button type="button" role="radio" data-value="reticle">Mirino</button>
+          <button type="button" role="radio" data-value="both">Entrambi</button>
+        </div>
+      </div>
 
       <label style="font-size:1.15em;">Key Bindings (prossimamente personalizzabili):</label>
       <div class="keybindings-list">
@@ -46,6 +55,7 @@
         <div class="keybinding-row"><span class="key">G</span><span>Tema giorno</span></div>
         <div class="keybinding-row"><span class="key">N</span><span>Tema notte</span></div>
         <div class="keybinding-row"><span class="key">RMB / X</span><span>Annulla cerchio magico / area spaziale</span></div>
+        <div class="keybinding-row"><span class="key">Rotella</span><span>Cambia la carica del cerchio da lanciare</span></div>
       </div>
       <button id="close-settings" class="main-btn" style="margin-top:24px;">Chiudi</button>
     </div>

@@ -308,6 +308,7 @@ button:disabled::before,
 .modal:not(.hidden) .settings-large > :nth-child(4) { animation-delay: 0.18s; }
 .modal:not(.hidden) .settings-large > :nth-child(5) { animation-delay: 0.23s; }
 .modal:not(.hidden) .settings-large > :nth-child(6) { animation-delay: 0.28s; }
+.modal:not(.hidden) .settings-large > :nth-child(n+7) { animation-delay: 0.33s; }
 .modal.is-closing {
   animation: backdrop-out 0.25s ease both;
 }

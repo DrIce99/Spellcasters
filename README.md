@@ -1,6 +1,13 @@
 # Spellcasters
 A simple web app game with *magic*
 
+- [Per lo sviluppatore](#per-lo-sviluppatore)
+- [Game design](#game-design)
+  - [Comandi](#comandi) · [Sistema di magia](#sistema-di-magia) · [Elementi](#elementi) · [Proiezioni](#proiezioni)
+  - [Interazioni tra magie](#interazioni-tra-magie) · [Mana](#mana) · [Progressione](#progressione) · [Roadmap](#roadmap)
+
+---
+
 ## Per lo sviluppatore
 
 ### Struttura del progetto
@@ -21,6 +28,8 @@ Spellcasters/
 │   │   │   ├── training.js        ← manichino del training
 │   │   │   ├── elements.js        ← elementi e colori condivisi
 │   │   │   ├── progression.js     ← curve di livello/esperienza/mana
+│   │   │   ├── spell-interactions.js ← regole delle interazioni tra magie
+│   │   │   ├── fx.js              ← effetti nel canvas (onde d'urto, cerchio che si dissolve, tratto che sfuma)
 │   │   │   ├── dollar-recognizer.js, element-patterns.js, status-effects.js, ...
 │   │   │   └── entities/enemy.js
 │   │   ├── services/     ← config.js (URL server, Firebase), firebase.js, player-db.js
@@ -53,149 +62,193 @@ online usa la variabile d'ambiente `FIREBASE_SERVICE_ACCOUNT`.
 
 ### Flusso di una partita PvP
 
-1. `arena.html` si registra al server e entra in coda.
-2. Il server crea la partita e invia `matchFound` con un `rejoinToken` personale.
+1. `arena.html` si registra al server e entra in coda (inviando le dimensioni dello schermo).
+2. Il server crea la partita e invia `matchFound` con un `rejoinToken` personale e le dimensioni dell'arena.
 3. L'Arena passa a `game.html?mode=pvp`: la vecchia connessione si chiude, la nuova invia `rejoinMatch`
    (il server aspetta fino a 20 secondi prima di assegnare la sconfitta a tavolino).
 4. Entrambi premono "Sono pronto" → countdown → partita attiva.
 
-**ITA**
+L'arena è il rettangolo più grande che entrambi vedono per intero: l'intersezione dei due schermi
+(larghezza minore × altezza minore, `arenaWidth`/`arenaHeight`). Chi ha lo schermo più grande la vede
+centrata con un bordo; se la finestra viene rimpicciolita l'arena si scala. `arenaSize` (il lato del
+quadrato che ci entra) resta nel messaggio solo per i client non aggiornati.
 
-N.B. Per Player e Caster si intende la stessa cosa
+### Note tecniche
 
-# Sistema di magia:
+- **Suoni dei laser**: per ogni elemento `client/public/sound/sfx/lasr/<elemento>-lasr-init.wav` (suonato una volta all'accensione)
+  seguito senza stacchi dal loop `<elemento>-lasr-cont.wav`. Il laser neutro usa `magk`; un elemento nuovo va aggiunto in
+  `soundFiles` e `laserSoundTypes` di `audio-manager.js` (senza, usa i suoni neutri).
+- **Suoni generati via Web Audio**: il ronzio delle aree di fulmine e il rimbalzo del fulmine (`createSynthesizedSounds` in `audio-manager.js`).
+- **Suoni brevi di interfaccia e di transizione** (click, cambio pagina, cerchio evocato, runa incisa, simbolo fallito, annullamento,
+  burnout, livello, colpi, esito): sintetizzati in `client/js/ui/sfx.js`. Per sostituirne uno con un file basta aggiungere il percorso
+  in `SFX_FILES` con la stessa chiave.
+- **File audio**: vanno in `client/public/sound/`, non in `dist/` (che viene svuotata a ogni build).
+- **Transizioni**: per cambiare pagina si usa `navigateTo(url)` di `client/js/ui/motion.js` (velo a iride con il cerchio runico);
+  le animazioni sono in `client/public/css/style-motion.css`, gli effetti nel canvas in `client/js/game/fx.js`.
+- **Impostazioni** (salvate in `localStorage`): numero di particelle, volume, tema, indicatore della carica selezionata
+  (`chargeIndicator`: nessuno / particelle / mirino / entrambi). Il gioco le legge all'apertura della pagina.
 
-1. il player deve creare un cerchio magico a partire dal nulla:
-    - Ciò che deve fare è tracciare un movimento col mouse. Se quel movimento corrisponde all’inizio di qualcosa (vedi sotto), il puntatore del mouse si illumina per informare il giocatore che c’è qualcosa di realizzabile con quel gesto. Per generare ciò che è realizzabile, deve tenere premuto il tasto “Z”.
+---
 
-## Cosa accade quando si genera una magia:
+## Game design
 
-In base a cosa si ha invocato, si hanno dei risultati diversi:
+> N.B. Per Player e Caster si intende la stessa cosa.
 
-1. se si ha invocato un elemento (a vuoto, quindi non all’interno di un cerchio magico), dal mouse si sprigiona un debole effetto di particelle inerente a quell’elemento
-2. se si ha invocato un cerchio magico, verrà generato un cerchio incolore (fucsia) che resterà sul banco (schermo) fino alla sua cancellazione (tenendo premuto “X” o tasto destro, si passa sopra col mouse come fosse una gomma \[basta che si cancelli metà del cerchio per eliminare l’intero cerchio, non serve cancellare ogni singolo punto\]).
-    1. se si disegna un elemento all’interno del cerchio, viene “inciso” (nel cerchio) un cerchio magico del simbolo corrispondente a ciò che si ha disegnato (solo se realizzabile) \[dev deve disegnare ogni singolo cerchio possibile\] \[vale la stessa regola di eliminazione detta in precedenza\] \[il colore del cerchio magico globale cambia in base al colore corrispondente all’elemento\]
-    2. se si disegna una proiezione all’interno del cerchio, viene aggiunto un cerchio concentrico di dimensione minore al cerchio di base, con delle “rune” in base al tipo di proiezione \[dev deve disegnare ogni possibile disegno\]
-3. se si ha invocato una proiezione (a vuoto, quindi non all’interno di un cerchio magico avente già un elemento), del “mana puro” (effetto azzurro-trasparente) (è affetto da ogni tipo di resistenza \[vedi sotto\]) viene sprigionato secondo la proiezione invocata
-4. il cerchio magico che si ha creato è trascinabile (se ne può tenere uno sullo schermo per volta)
-5. se si vuole testare il cerchio magico, si può cliccare due volte su di esso per vederne il risultato (una volta invocato sparisce) (in battaglia, si applica immediatamente)
-6. se si vuole “salvare” il cerchio magico, mentre si tiene premuto il tasto sinistro del mouse si clicca “S”. QUANDO SI SALVA, si può associare un disegno alla propria creazione, in modo da essere facilmente utilizzato in battaglia \[lato dev: prestare attenzione a tenere “unici” i disegni\]. Dopodiché esso verrà salvato nel proprio spellbook.
+Legenda dello stato: ✅ implementato · 🔜 da implementare
 
-## Elementi:
+### Comandi
 
-- **Fuoco** (si genera disegnando una “y” al contrario)
-- **Acqua** (si genera disegnando una goccia)
-- **Aria** (si genera disegnando “un giro di molla” o "pigtail")
-- **Terra** (si genera disegnando un quadrato \[a partire dal lato sinistro dal basso verso l’alto in poi\] con il punto di fine che oltrepassa la linea iniziale \[lato sinistro e inferiore devono essere intersecati\])
-- **Fulmine** (si genera disegnando il simbolo del fulmine dall’alto verso il basso)
-- **Luce** (si genera disegnando un “+” \[a partire da sinistra verso destra, si uniscono estremo destro con superiore e poi si traccia verso il basso\])
-- **Oscurità** (si genera disegnando in maniera stilizzata delle corna)
-- **Benessere** (simbolo dell’infinito \[a partire da sinistra\])
-- … (da aggiungere una volta che funzionerà la base)
+| Tasto | Azione | Stato |
+|---|---|---|
+| **Z** (tenuto) | Disegna un simbolo muovendo il player | ✅ |
+| **X** (tenuto) | Disegno virtuale: il player sta fermo finché non si rilascia il tasto, poi il puntatore torna sulla posizione del player (e non il contrario) | 🔜 1.2.5 |
+| **Tasto destro** / **X** | Annulla, in ordine: il laser sotto il mouse, l'area sotto il mouse, il cerchio sotto il mouse (insieme a tutte le magie permanenti), altrimenti l'ultimo laser "semplice" (lanciato a vuoto) | ✅ |
+| **Click sinistro sul cerchio + trascinamento** | Lancia la carica selezionata nella direzione del trascinamento (per la spaziale: si disegna il perimetro) | ✅ |
+| **Rotella** | Sceglie quale carica del cerchio lanciare | ✅ |
+| **S** (tenendo premuto il tasto sinistro) | Salva il cerchio magico nello spellbook | 🔜 |
+| **G** / **N** | Tema giorno / notte | ✅ |
 
-Cerchio magico:
+Regole del disegno virtuale:
+- non si possono sparare proiettili a vuoto, solo dai cerchi magici;
+- solo con il disegno virtuale si possono evocare i **muri** e la **cinetica**;
+- un player paralizzato dal fulmine può comunque castare in modalità virtuale (il cursore si muove per disegnare, il corpo no).
 
-- Un semplice cerchio
+### Sistema di magia
 
-Proiezioni:
+Il player crea le magie a partire dal nulla: traccia un movimento col mouse tenendo premuto **Z**. Se quel movimento
+corrisponde all'inizio di qualcosa di realizzabile, il bordo dello schermo si illumina per avvisarlo.
 
-- **Proiettile** (si genera disegnando una linea semplice \[la direzione del lancio del proiettile dipende dalla direzione di punto iniziale del disegno e punto finale\])
-- **Trappola** (si genera disegnando il simbolo di watch dogs, dopodiché si disegna il perimetro entro la cui area si attiverà la magia) (non si attiva fino a quando un player non ci sale sopra \[ovvero uno dei due mouse non si trova in quell’area\]) \[il mana viene consumato in base all’area\]
-- **Laser** (si genera disegnando una linea semplice, torna indietro al punto di partenza e ripercorre la linea (come una “z” ma più appiattita)) (**magia permanente**: rimane attiva fino a quando non si annulla \[tasto destro del mouse\])
-- **Stato** (si genera disegnando un triangolo con il lato sinistro verticale (la cui forma somiglia al puntatore del mouse)) (applica a sé) \[in base alla tabella degli elementi, aumenta/diminuisce la difesa in base a forze e resistenze (vedi di seguito) tranne per “Benessere”, che aumenta semplicemente la potenza di attacco\] (**magia permanente**)
-- **Spaziale** (si genera disegnando una “N” (a partire da sinistra) e unendo il punto finale con quello iniziale) (funziona come trappola (per il calcolo del mana usato in base all’area), ma si attiva subito ed è una **magia permanente**)
+Cosa succede in base a ciò che si è invocato:
 
-## ANNULLAMENTO MAGIE PERMANENTI:
+1. **Un elemento a vuoto** (fuori da un cerchio magico): dal mouse si sprigiona un debole effetto di particelle di quell'elemento.
+2. **Un cerchio magico**: compare un cerchio incolore (fucsia) che resta sul campo finché non viene cancellato:
+   tenendo premuto X o il tasto destro ci si passa sopra col mouse come una gomma, e basta cancellarne metà per eliminarlo
+   tutto (oggi basta un click destro o X sul cerchio).
+   1. Un **elemento** disegnato dentro il cerchio viene "inciso" nel cerchio, che prende il colore dell'elemento
+      \[dev: disegnare il cerchio di ogni elemento\].
+   2. Una **proiezione** disegnata dentro il cerchio aggiunge una carica: un cerchio concentrico più piccolo con le "rune"
+      del tipo di proiezione \[dev: disegnare ogni proiezione\].
+3. **Una proiezione a vuoto** (fuori da un cerchio con un elemento): si sprigiona "mana puro" (effetto azzurro trasparente),
+   soggetto a tutte le resistenze.
+4. Se il cerchio ha più cariche, con la **rotella** si sceglie quale lanciare: di default è l'ultima incisa, un mirino indica
+   quella selezionata e dopo ogni lancio la selezione torna sull'ultima.
+5. 🔜 Il cerchio magico è trascinabile (se ne può tenere uno sullo schermo per volta).
+6. 🔜 Per testare il cerchio, doppio click su di esso: se ne vede il risultato e poi sparisce (in battaglia si applica subito).
+7. 🔜 Per **salvare** il cerchio: tenendo premuto il tasto sinistro si preme **S** e si associa un disegno alla creazione,
+   per usarla velocemente in battaglia. Viene salvata nello spellbook \[dev: i disegni devono restare unici\].
 
-- Tasto destro del mouse sulla magia (se si usa un laser semplice tasto destro)
+### Elementi
 
- ### Resistenze (-> = superefficace, l’opposto è resistenza/counter, TUTTO QUESTO SERVE SOLO PER LE DIFESE o per ANNULLARE/CONTRASTARE ALTRE MAGIE IN CAMPO):
+| Elemento | Simbolo | Effetto sull'avversario colpito ¹ | Stato |
+|---|---|---|---|
+| **Fuoco** | una "y" al contrario | brucia: 1 di danno ogni 1.5 s per 4.5 s | ✅ |
+| **Acqua** | una goccia | rallentato del 20% per 5 s | ✅ |
+| **Aria** | un giro di molla ("pigtail") | comandi invertiti (assi x e y) per 4 s | ✅ |
+| **Terra** | tre lati di un quadrato, partendo dal lato sinistro dal basso verso l'alto | non può muoversi per 1 s, ogni 1 s, per 3 volte | ✅ |
+| **Fulmine** | il simbolo del fulmine, dall'alto verso il basso | proiettile/laser: rimbalza su ogni superficie (anche sulla terra); trappola/spaziale: paralizza | ✅ |
+| **Luce** | un "+": da sinistra a destra, poi si unisce l'estremo destro con quello superiore e si traccia verso il basso | vede sfocato per 2 s | 🔜 |
+| **Oscurità** | delle corna stilizzate | accecato per 2 s | 🔜 |
+| **Benessere** | il simbolo dell'infinito, partendo da sinistra | — (con la magia di Stato aumenta l'attacco) | 🔜 |
+| **Ghiaccio** | un quadrato | scivola su qualsiasi superficie; si ferma quando l'angolo di impatto supera i 45° | 🔜 |
+| **Metallo** | linea orizzontale, poi obliqua verso l'alto nella stessa direzione, poi verticale verso il basso | resta attratto verso il punto in cui è stato colpito (può comunque muoversi) | 🔜 |
+| **Veleno** | il contorno di un teschio ² | avvelenato per sempre (0.1 di danno); si toglie solo con una magia d'acqua su se stessi (Stato, spaziale, ...) | 🔜 |
 
-- Acqua -> Fuoco, Terra
-- Fuoco -> Aria, Terra
-- Terra -> Aria
-- Aria -> Acqua
-- Fulmine -> Acqua
-- Aria != (immune) a Fulmine
-- Luce &lt;-&gt; Oscurità (resistono a vicenda)
+¹ Durate di design: nel codice (`status-effects.js`) ci sono ancora quelle precedenti, più brevi
+(fuoco 1 di danno ogni 0.5 s per 1.5 s, acqua e aria 1.5 s, terra 0.5 s alla volta).
+² Per questo riconoscimento vanno ignorati inizio e fine del tratto (troppe combinazioni per gestirle a mano).
 
-### INTERAZIONI magie:
+Il **cerchio magico** si evoca disegnando un semplice cerchio.
 
-- se si passa una magia d’acqua su una magia in fiamme (o viceversa), il fuoco si spegne dove passa la magia.
-- se si passa una magia di fuoco su una magia d’aria (o viceversa), l'aria si trasforma in fuoco (l'appartenenza della magia d'aria infuocata diventa del player che ha castato quella di fuoco)
-- se si passa una magia d’aria su una magia d’acqua (o viceversa), l'acqua si dissolve
-- se si passa una magia di fulmine su una magia d’acqua (o viceversa), essa si carica di elettricità che danneggia entrambi i Caster
-- Aria ignora Fulmine
-- Luce annulla Oscurità e viceversa (easter egg: in caso due laser di luce e oscurità si scontrano tra loro, i Caster rimangono ad evocarli come in Dragon Ball fino a quando il primo non termina mana. Animazione cinematica speciale)
-- se si passa una magia di acqua su una magia di terra (o viceversa), essa diverrà rigogliosa e permetterà una rigenerazione aumentata di mana ad entrambi i Caster
-- se si passa una magia di fuoco su una magia di terra (o viceversa), essa diverrà magma e arrecherà danno ad entrambi i Caster. Se è una proiezione, lascia dietro di sé una scia per 2.5 secondi.
-- le proiezioni di terra ignorano le magie spaziali di fulmine, ma le proiezioni di fulmine vengono bloccate dalle magie spaziali di terra
-- eccetto le interazioni precedentemente citate, la magia spaziale di terra blocca le proiezioni che entrano in contatto con essa
-- fulmine potenzia il danno delle magie di luce
+### Proiezioni
 
-**Stato implementazione** (regole in `client/js/game/spell-interactions.js`, solo con gli elementi attuali; si applicano a proiettili, laser e aree spaziali):
+| Proiezione | Simbolo | Comportamento | Stato |
+|---|---|---|---|
+| **Proiettile** | una linea semplice | parte nella direzione dal punto iniziale a quello finale del disegno | ✅ |
+| **Laser** | una linea, ritorno al punto di partenza e di nuovo la linea (una "z" appiattita) | **permanente**: resta attivo finché non si annulla | ✅ |
+| **Spaziale** | una "N" (partendo da sinistra) chiusa unendo la fine con l'inizio | si disegna il perimetro dell'area, che si attiva subito; **permanente**, mana in base all'area | ✅ |
+| **Trappola** | il simbolo di Watch Dogs, poi il perimetro dell'area | si attiva solo quando un player ci sale sopra; mana in base all'area | 🔜 |
+| **Stato** | un triangolo con il lato sinistro verticale (come il puntatore del mouse) | si applica a sé: aumenta/diminuisce la difesa in base a forze e resistenze dell'elemento; con Benessere aumenta l'attacco. **Permanente** | 🔜 |
+| **Muro** | come il proiettile, ma **solo con il disegno virtuale** | crea un muro lungo la linea disegnata; i proiettili ci rimbalzano (consuma poco mana). Se il proprietario disegna un elemento che lo attraversa (anche non in virtuale), il muro ne viene infuso | 🔜 |
+| **Cinetica** | un cerchio sulla magia da spostare, poi il movimento da farle compiere; **solo con il disegno virtuale** | sposta le proprie magie in campo; più è veloce il tratto, più veloce è lo spostamento | 🔜 |
+
+### Interazioni tra magie
+
+Regole di design:
+
+- **Acqua ↔ Fuoco**: dove passa l'acqua il fuoco si spegne.
+- **Fuoco ↔ Aria**: l'aria diventa fuoco e passa a chi ha lanciato il fuoco.
+- **Aria ↔ Acqua**: l'acqua si dissolve.
+- **Fulmine ↔ Acqua**: l'acqua si elettrifica e danneggia entrambi i caster.
+- **Aria** ignora il **Fulmine**.
+- **Acqua ↔ Terra**: la magia diventa rigogliosa e aumenta la rigenerazione di mana di entrambi i caster.
+- **Fuoco ↔ Terra**: diventa magma e danneggia entrambi i caster; una proiezione di magma lascia una scia per 2.5 s.
+- **Terra**: le proiezioni di terra ignorano le aree di fulmine, mentre le proiezioni di fulmine sono bloccate dalle aree di terra.
+  A parte le interazioni sopra, l'area di terra blocca le proiezioni che la toccano.
+- **Luce ↔ Oscurità**: si annullano a vicenda (easter egg: se due laser di luce e oscurità si scontrano, i caster restano
+  a evocarli come in Dragon Ball finché il primo non finisce il mana, con un'animazione cinematica speciale).
+- **Fulmine** potenzia il danno delle magie di luce.
+- **Metallo** attrae a sé tutte le magie.
+- **Ghiaccio** blocca come la terra.
+  - colpito da **acqua**: l'acqua diventa ghiaccio (di chi ha lanciato il ghiaccio);
+  - colpito da **aria**: esplode in piccoli frammenti in tutte le direzioni (di chi ha lanciato il ghiaccio);
+  - colpito da **fuoco**: diventa acqua.
+- **Acqua ↔ Veleno**: il veleno si dissolve.
+
+\* N.B. per "priorità" si intende immunità da quella magia.
+
+**Stato implementazione** (regole in `client/js/game/spell-interactions.js`, solo con gli elementi attuali; valgono per proiettili, laser e aree spaziali):
 
 - acqua spegne fuoco; fuoco incendia aria (l'area passa a chi ha lanciato il fuoco); aria dissolve acqua
-- acqua + terra = rigoglio (12 s, rigenerazione mana ×3 per entrambi); fuoco + terra = magma (5 s, danno a entrambi in base alla media degli ATK di chi ha lanciato fuoco e terra; i proiettili lasciano una scia di 2.5 s)
-- l'area di terra blocca i proiettili che non reagiscono con lei
+- acqua + terra = rigoglio (12 s, rigenerazione mana ×3 per entrambi; finché è rigogliosa la magia non consuma mana a chi la possiede)
+- fuoco + terra = magma (5 s, danno a entrambi in base alla media degli ATK di chi ha lanciato fuoco e terra; i proiettili lasciano una scia di 2.5 s)
+- fulmine + acqua = elettrificata (4 s, danno a entrambi in base alla media degli ATK; un proiettile elettrificato folgora chi gli passa vicino)
+- l'aria ignora il fulmine; le proiezioni di terra attraversano le aree di fulmine; l'area di terra blocca i proiettili che non reagiscono con lei
+- proiettili (max 4 rimbalzi) e laser (1 rimbalzo) di fulmine rimbalzano sui bordi dell'arena e sulle aree di terra
+- le aree di fulmine paralizzano (1.5 s, poi 1.5 s di immunità): il corpo resta fermo, il cursore si muove e si può disegnare
+  (da collegare al disegno virtuale)
+- laser: magia permanente (0.15 mana ogni 0.1 s), parte da un punto fisso fino al bordo dell'arena e si ferma sulle aree di terra
+  con cui non reagisce. Interagisce con proiettili (attraversandoli), aree e altri laser con le stesse regole delle aree
+  (un laser d'aria incendiato passa a chi ha lanciato il fuoco). Danno a chi tocca il raggio ogni 0.5 s
 - extra: due proiettili avversari che si incrociano interagiscono tra loro; l'acqua raffredda il magma
-- l'esperienza si guadagna solo nelle partite PvP online (non in laboratorio né in training)
-- fulmine + acqua = elettrificata (4 s, danno a entrambi i caster in base alla media degli ATK; un proiettile elettrificato folgora chi gli passa vicino); l'aria ignora il fulmine; le proiezioni di terra attraversano le aree di fulmine
-- proiettili (max 4 volte) e laser (1 volta) di fulmine rimbalzano sui bordi dell'arena e sulle aree di terra; le aree di fulmine paralizzano (1.5 s, poi 1.5 s di immunità): il corpo resta fermo, il cursore si muove e si può disegnare
-- laser: magia permanente (0.15 mana ogni 0.1 s), parte da un punto fisso fino al bordo dell'arena, si ferma sulle aree di terra con cui non reagisce. Interagisce con proiettili (attraversandolo), aree e altri laser con le stesse regole delle aree (un laser d'aria incendiato passa a chi ha lanciato il fuoco). Danno a chi tocca il raggio ogni 0.5 s
-- annullamento con tasto destro / X, in ordine: laser sotto il mouse, area sotto il mouse, cerchio sotto il mouse (insieme a tutte le magie permanenti), altrimenti l'ultimo laser "semplice" (lanciato a vuoto)
 - non ancora: Luce, Oscurità, Trappola (e quindi "fulmine potenzia la luce" e lo scontro tra laser di luce e oscurità)
-- suoni dei laser: per ogni elemento `client/public/sound/sfx/lasr/<elemento>-lasr-init.wav` (suonato una volta all'accensione) seguito senza stacchi dal loop `<elemento>-lasr-cont.wav`. Il laser neutro usa `magk`; un elemento nuovo va aggiunto in `soundFiles` e `laserSoundTypes` di `audio-manager.js` (senza, usa i suoni neutri)
-- il ronzio delle aree di fulmine e il rimbalzo del fulmine sono generati via Web Audio (`createSynthesizedSounds`)
-- i file audio vanno messi in `client/public/sound/`, non in `dist/` (che viene svuotata a ogni build)
-- transizioni: per cambiare pagina si usa `navigateTo(url)` di `client/js/ui/motion.js` (velo a iride con il cerchio runico), le animazioni sono in `client/public/css/style-motion.css`; gli effetti nel canvas (onde d'urto, cerchio che si dissolve, tratto che sfuma) in `client/js/game/fx.js`
-- i suoni brevi di interfaccia e di transizione (click, cambio pagina, cerchio evocato, runa incisa, simbolo fallito, annullamento, burnout, livello, colpi, esito) sono sintetizzati in `client/js/ui/sfx.js`: per sostituirne uno con un file basta aggiungere il percorso in `SFX_FILES` con la stessa chiave
 
-**Progressione** (formule in `client/js/game/player-stats.js`):
+### Mana
 
-- il livello non aumenta più mana né rigenerazione: ogni livello oltre il primo dà **1 punto abilità**
-- i punti si spendono nella pagina Info Giocatore (pannello "Statistiche") su HP, ATK base, MP e riduzione consumo mana;
-  su Firestore si salva `puntiAbilita` (punti spesi per statistica), i non spesi = (livello − 1) − somma
-- l'affinità con un elemento dà passivamente difesa da quell'elemento (fino al 30%) e un margine di errore
-  maggiore nel disegnarne la runa (dal 40% fino al 50%)
-- bonus danno elementale, tasso CRIT e DMG CRIT sono mostrati ma restano a 0 per ora
+**Il mana che si possiede è limitato anche in laboratorio.**
 
-IL MANA CHE SI POSSIEDE È LIMITATO ANCHE IN LABORATORIO.
+Il mana si vede come un perimetro colorato sul bordo dello schermo: è simmetrico, come una barra di caricamento il cui massimo
+è il centro del lato superiore e il minimo il centro del lato inferiore.
 
-UI per vedere quanto mana si possiede: perimetro colorato al limite dello schermo (in maniera simmetrica, è come una barra di caricamento il cui massimo è il centro del lato superiore e il minimo il centro del lato inferiore)
+Consumo:
 
-Più si utilizza la magia, più aumenta l’esperienza. L’esperienza permette di salire di livello e di aumentare:
+| Cosa | Costo |
+|---|---|
+| Elemento | 1 mana |
+| Proiezione non permanente | 2 mana |
+| Proiezione permanente | mana graduale (ogni 0.1 s) |
+| Proiezione spaziale | in base all'area |
+| Cerchio magico | 0 mana |
+| Cerchio carico di elemento e proiezione non permanente | proiezione × 1.5 🔜 (oggi costa come la proiezione a vuoto) |
+| Cerchio carico di elemento e proiezione permanente | come la proiezione (ogni 0.1 s) |
 
-- danno magico
-- capienza massima di mana (in futuro dovrà esserci un matchmaking bilanciato in base al livello che si ha)
-- velocità di rigenerazione di mana
+Se si supera il mana rimasto si va in **burnout** (overload): le magie attive si annullano e non si può castare per 5 secondi.
 
-Se si ignora il mana rimanente e lo si oltrepassa, si va in **burnout** (o overload) (le magie attive si annullano e non si possono utilizzare magie per 5 secondi)
+### Progressione
 
-### Effetti degli elementi sugli avversari:
-se un proiettile infuso di un elemeno colpisce un avversario, questo avversario subisce le conseguenze del colpo in base all'elemento:
-- fuoco: l'avversario "brucia" (subisce 1 di danno ogni 0.5 secondi per 1.5 secondi)
-- acqua: l'avversario è rallentato del 20% per 1.5 secondi
-- aria: i comandi dell'avversario (assi x e y) sono invertiti per 1.5 secondi
-- terra: l'avversario non può muoversi per 0.5 secondi ogni 0.5 secondi per 2 volte
-- fulmine: proiezione/laser: rimbalza su qualsiasi superficie (anche magie di terra); trappola/spaziale: paralizza l'avversario*
+Formule in `client/js/game/player-stats.js`.
 
-Quando un player è paralizzato a causa di una magia di fulmine, può comunque castare in modalità "virtuale" (si può muovere per disegnare magie, ma il corpo non si muove)
+- L'esperienza si guadagna usando la magia, **solo nelle partite PvP online** (non in laboratorio né in training).
+- Ogni livello oltre il primo dà **1 punto abilità**; il livello di per sé non aumenta più mana né rigenerazione.
+- I punti si spendono nella pagina Info Giocatore (pannello "Statistiche") su HP, ATK base, MP e riduzione del consumo di mana.
+  Su Firestore si salva `puntiAbilita` (punti spesi per statistica); i punti non spesi = (livello − 1) − somma.
+- L'affinità con un elemento dà passivamente difesa da quell'elemento (fino al 30%) e un margine di errore maggiore
+  nel disegnarne la runa (dal 40% fino al 50%).
+- Bonus danno elementale, tasso CRIT e DMG CRIT sono mostrati ma per ora restano a 0.
+- In futuro: matchmaking bilanciato in base al livello.
 
-### Consumo di mana:
-- Elementi: 1 mana
-- Proiezioni (non permanenti): 2 mana
-- Proiezioni (permanenti): mana graduale (consumo ogni 0.1 secondi)
-- Proiezioni spaziali: mana in base all'area
-- Cerchi magici: 0 mana
-- Cerchi magici caricati di elementi e proiezioni (non permanenti): proiezione * 1.5 mana
-- Cerchi magici caricati di elementi e proiezioni: proiezione (consumo ogni 0.1 secondi) mana
+### Roadmap
 
-#### Note per lo sviluppatore:
-
-##### Modalità di implementazione graduale:
-
-- Alpha (di test per vedere se funziona):
+- **Alpha** (test per vedere se funziona):
   - Elementi: Acqua, Fuoco, Aria, Terra
   - Proiezioni: Proiettile
   - No magie permanenti (e sistema di annullamento)
@@ -203,22 +256,22 @@ Quando un player è paralizzato a causa di una magia di fulmine, può comunque c
   - No interazione delle magie
   - UI di visualizzazione mana
   - Livello ed esperienza
-- 1.0:
-  - Implementazione magie permanenti (e sistema di annullamento)
-  - Proiezioni: spaziale
-- 1.1:
+- **1.0**:
+  - Magie permanenti (e sistema di annullamento)
+  - Proiezioni: Spaziale
+- **1.1**:
   - Arena
   - Sistema di interazione delle magie in campo
-- 1.1.2:
+- **1.1.2**:
   - Sistema di salvataggio delle magie
-- 1.2:
+- **1.2**:
   - Nuovi elementi: Fulmine, Luce, Oscurità
-  - Nuove proiezioni: Trappola, laser
-- 1.3:
-  - Nuovo elemento: Benessere
+  - Nuove proiezioni: Trappola, Laser
+- **1.2.5**:
+  - Disegno virtuale: premendo X invece di Z il player non si muove mentre si disegna
+- **1.3**:
+  - Nuovi elementi: Benessere e Veleno
   - Nuova proiezione: Stato (e sistema di resistenze)
-  
-...
-
-- 2.0:
+- …
+- **2.0**:
   - Open World

@@ -267,9 +267,10 @@ function joinMatchmaking(ws, data) {
     player.partite = data.partite ?? player.partite;
     player.winRate = calculateWinRate(player.vittorie, player.partite);
     player.combatStats = sanitizeCombatStats(data.combatStats);
-    // Lato massimo di un'arena quadrata che entra nello schermo del giocatore
-    const viewportSide = Math.floor(Math.min(Number(data.viewport?.width), Number(data.viewport?.height)));
-    player.viewportSide = viewportSide > 0 ? viewportSide : null;
+    // Dimensioni dello schermo del giocatore: servono a calcolare l'arena condivisa
+    const viewportWidth = Math.floor(Number(data.viewport?.width));
+    const viewportHeight = Math.floor(Number(data.viewport?.height));
+    player.viewport = viewportWidth > 0 && viewportHeight > 0 ? { width: viewportWidth, height: viewportHeight } : null;
 
     player.status = 'matchmaking';
     player.queueJoinTime = Date.now();
@@ -343,11 +344,18 @@ function isValidMatch(player1, player2) {
     return true;
 }
 
-// Arena quadrata condivisa: il lato è il più grande che entra in entrambi gli schermi,
-// così nessuno dei due può raggiungere zone che l'altro non vede
-function computeArenaSize(player1, player2) {
-    const sides = [player1.viewportSide, player2.viewportSide].filter(Boolean);
-    return sides.length ? Math.min(...sides) : MATCHMAKING_CONFIG.DEFAULT_ARENA_SIZE;
+// Arena condivisa: il rettangolo più grande che entrambi vedono per intero, cioè l'intersezione
+// dei due schermi (la larghezza minore per l'altezza minore). Nessuno dei due può raggiungere
+// zone che l'altro non vede.
+function computeArena(player1, player2) {
+    const viewports = [player1.viewport, player2.viewport].filter(Boolean);
+    if (!viewports.length) {
+        return { width: MATCHMAKING_CONFIG.DEFAULT_ARENA_SIZE, height: MATCHMAKING_CONFIG.DEFAULT_ARENA_SIZE };
+    }
+    return {
+        width: Math.min(...viewports.map(v => v.width)),
+        height: Math.min(...viewports.map(v => v.height))
+    };
 }
 
 function buildPlayerGameState(player) {
@@ -368,7 +376,7 @@ function createMatch(player1, player2) {
     const matchData = {
         id: matchId,
         players: [player1, player2],
-        arenaSize: computeArenaSize(player1, player2),
+        arena: computeArena(player1, player2),
         startTime: Date.now(),
         player1Ready: false,
         player2Ready: false,
@@ -393,7 +401,10 @@ function createMatch(player1, player2) {
         rejoinToken: self.rejoinToken,
         opponent: { username: opponent.username, level: opponent.level, winRate: opponent.winRate },
         gameState: matchData.gameState,
-        arenaSize: matchData.arenaSize,
+        arenaWidth: matchData.arena.width,
+        arenaHeight: matchData.arena.height,
+        // Client non ancora aggiornati: arena quadrata che entra in quella vera
+        arenaSize: Math.min(matchData.arena.width, matchData.arena.height),
         playerRole
     });
 

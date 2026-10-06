@@ -42,25 +42,32 @@ const ctx = canvas.getContext("2d");
 
 // === AREA DI GIOCO ===
 // Tutte le coordinate di gioco (mouse, cerchi, proiettili, aree) sono nel "mondo".
-// Nel training il mondo è l'intero schermo; nel PvP è un quadrato di lato fisso, uguale
-// per i due giocatori, centrato e rimpicciolito se la finestra è più piccola.
-const world = { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0, fixedSize: getPvPArenaSize() };
+// Nel training il mondo è l'intero schermo; nel PvP è un rettangolo fisso, uguale per i due
+// giocatori (l'intersezione dei loro schermi), centrato e rimpicciolito se la finestra è più piccola.
+const world = { width: 0, height: 0, scale: 1, offsetX: 0, offsetY: 0, fixed: getPvPArena() };
 
-function getPvPArenaSize() {
+/** @returns {{width: number, height: number} | null} null fuori dal PvP */
+function getPvPArena() {
   if (new URLSearchParams(window.location.search).get('mode') !== 'pvp') return null;
   try {
     const matchData = JSON.parse(localStorage.getItem('currentMatchData'));
-    if (matchData?.arenaSize > 0) return matchData.arenaSize;
+    if (matchData?.arenaWidth > 0 && matchData?.arenaHeight > 0) {
+      return { width: matchData.arenaWidth, height: matchData.arenaHeight };
+    }
+    // Server vecchio: arena quadrata
+    if (matchData?.arenaSize > 0) return { width: matchData.arenaSize, height: matchData.arenaSize };
   } catch { /* dati assenti o corrotti: si usa il ripiego */ }
-  // Server vecchio senza arenaSize: almeno il quadrato resta dentro questo schermo
-  return Math.min(window.innerWidth, window.innerHeight);
+  // Nessuna dimensione dal server: almeno il quadrato resta dentro questo schermo
+  const side = Math.min(window.innerWidth, window.innerHeight);
+  return { width: side, height: side };
 }
 
 function layoutWorld() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  if (world.fixedSize) {
-    world.width = world.height = world.fixedSize;
+  if (world.fixed) {
+    world.width = world.fixed.width;
+    world.height = world.fixed.height;
     world.scale = Math.min(1, canvas.width / world.width, canvas.height / world.height);
   } else {
     world.width = canvas.width;
@@ -90,6 +97,7 @@ const FRAME_MS = 1000 / 60;
 const OPPONENT_SOUND_VOLUME = 0.75;     // le magie dell'avversario suonano un po' più piano
 const CIRCLE_APPEAR_MS = 450;           // il cerchio magico si "traccia" da solo quando compare
 const CIRCLE_FLASH_MS = 500;            // bagliore del cerchio quando riceve un elemento o una carica
+const WHEEL_STEP = 60;                  // delta della rotella per passare alla carica successiva (touchpad: più passi piccoli)
 
 // ⚡ Fulmine: proiettili e laser rimbalzano sui bordi dell'arena e sulle aree di terra
 const FULMINE_MAX_BOUNCES = 4;
@@ -119,7 +127,8 @@ let lastFrameTime = performance.now();
 let frameScale = 1;
 let frameMs = FRAME_MS;
 
-// Cerchio magico: { x, y, radius, thickness, elemento, projections: [] }
+// Cerchio magico: { x, y, radius, thickness, elemento, projections: [], selected }
+// selected = indice della carica che partirà al prossimo lancio (la rotella del mouse la cambia)
 // L'elemento appartiene al cerchio: quando il cerchio sparisce sparisce anche l'infusione,
 // così un proiettile disegnato dopo è sempre neutro.
 let magicCircle = null;
@@ -138,6 +147,11 @@ let spazialePolygonColor = DEFAULT_SPAZIALE_COLOR;
 let lastDrawSoundTime = 0;
 
 const particleCount = Number(localStorage.getItem('particleCount')) || 60;
+
+// Indicatore della carica selezionata nel cerchio (impostazioni): 'none' | 'particles' | 'reticle' | 'both'
+const chargeIndicator = localStorage.getItem('chargeIndicator') || 'both';
+const showChargeParticles = chargeIndicator === 'particles' || chargeIndicator === 'both';
+const showChargeReticle = chargeIndicator === 'reticle' || chargeIndicator === 'both';
 
 // Mouse virtuale: con il pointer lock segue il mouse reale con un po' di inerzia
 const virtualMouse = { x: world.width / 2, y: world.height / 2 };
@@ -355,6 +369,22 @@ canvas.addEventListener("mousemove", (e) => {
   }
 });
 
+// Rotella: scorre tra le cariche del cerchio magico (giù = senso orario, su = antiorario).
+// Bloccata mentre si sta già usando una carica (trascinamento o perimetro di un'area).
+let wheelAccumulator = 0;
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault(); // niente zoom/scroll della pagina mentre si gioca
+  if (!isPointerLocked() || !magicCircle || magicCircle.projections.length < 2) return;
+  if (pointerDownOnCircle || isActivatingMagicCircle || isDrawingSpaziale) return;
+
+  // deltaMode 1 = righe (Firefox): le riportiamo in pixel
+  wheelAccumulator += e.deltaMode === 1 ? e.deltaY * 40 : e.deltaY;
+  if (Math.abs(wheelAccumulator) < WHEEL_STEP) return;
+  const step = Math.sign(wheelAccumulator);
+  wheelAccumulator = 0;
+  selectCharge(magicCircle.selected + step);
+}, { passive: false });
+
 canvas.addEventListener("mouseup", (e) => {
   if (e.button !== 0) return;
   const wasOnCircle = pointerDownOnCircle;
@@ -475,6 +505,7 @@ function recognizeSpell(stroke) {
   if (magicCircle) {
     if (name === "proiettile" || name === "spaziale" || name === "laser") {
       magicCircle.projections.push(name);
+      magicCircle.selected = magicCircle.projections.length - 1; // l'ultima incisa è pronta al lancio
       engraveCircle(circleColorOf(magicCircle));
       playSfx('engrave', { pitch: 1 + 0.12 * Math.min(6, magicCircle.projections.length - 1) });
       return name;
@@ -560,6 +591,7 @@ function createMagicCircle() {
     thickness: 3,
     elemento: null,
     projections: [],
+    selected: 0,
     bornAt: performance.now(), // animazione di comparsa (solo locale, non viene inviata all'avversario)
     flashAt: 0
   };
@@ -591,18 +623,41 @@ function removeMagicCircle(sound = 'circleFade') {
   }
 }
 
-// Le cariche si usano dall'ultima aggiunta (FILO)
+// Si lancia la carica selezionata: di default l'ultima aggiunta (FILO), con la rotella un'altra
 function peekProjection() {
   if (!magicCircle || magicCircle.projections.length === 0) return null;
-  return magicCircle.projections[magicCircle.projections.length - 1];
+  return magicCircle.projections[magicCircle.selected];
 }
 
-// Consuma UNA carica; se erano finite il cerchio sparisce (le aree spaziali restano)
+// Consuma la carica selezionata; se erano finite il cerchio sparisce (le aree spaziali restano).
+// Dopo il lancio la selezione torna sull'ultima carica, come prima della rotella.
 function consumeCharge() {
-  magicCircle.projections.pop();
+  magicCircle.projections.splice(magicCircle.selected, 1);
+  magicCircle.selected = magicCircle.projections.length - 1;
   if (magicCircle.projections.length === 0) {
     removeMagicCircle();
   }
+}
+
+// Seleziona la carica index (gira attorno al cerchio) con un piccolo impulso visivo e sonoro
+function selectCharge(index) {
+  const count = magicCircle.projections.length;
+  magicCircle.selected = ((index % count) + count) % count;
+  const { x, y } = chargePosition(magicCircle.selected);
+  spawnRing(x, y, { color: circleColorOf(magicCircle), from: 10, to: magicCircle.radius * 0.45, duration: 260, width: 2 });
+  playSfx('select', { pitch: 1 + 0.5 * magicCircle.selected / Math.max(1, count - 1), throttle: 20 });
+}
+
+// Centro della carica i-esima, come la disegna drawProjectilePolygonPattern
+function chargePosition(index, angleOverride = null) {
+  const count = magicCircle.projections.length;
+  const angle = (angleOverride ?? chargeAngle(index, count)) - circleRotation;
+  const r = magicCircle.radius * 1.1;
+  return { x: magicCircle.x + Math.cos(angle) * r, y: magicCircle.y + Math.sin(angle) * r };
+}
+
+function chargeAngle(index, count) {
+  return -Math.PI / 2 + (2 * Math.PI / count) * index;
 }
 
 function canCast() {
@@ -758,11 +813,7 @@ function drawMagicCircle() {
 function drawNextChargeParticles() {
   if (!magicCircle || magicCircle.projections.length < 1) return;
 
-  const count = magicCircle.projections.length;
-  const angle = -Math.PI / 2 + (2 * Math.PI / count) * (count - 1) - circleRotation;
-  const r = magicCircle.radius * 1.1;
-  const x = magicCircle.x + Math.cos(angle) * r;
-  const y = magicCircle.y + Math.sin(angle) * r;
+  const { x, y } = chargePosition(magicCircle.selected);
   const color = magicCircle.elemento ? getElementColor(magicCircle.elemento) : EMPTY_CIRCLE_COLOR;
 
   for (let i = 0; i < 6; i++) {
@@ -777,6 +828,35 @@ function drawNextChargeParticles() {
       element: magicCircle.elemento
     });
   }
+}
+
+// Mirino attorno alla carica selezionata: quando la selezione cambia (rotella o nuova carica)
+// scorre lungo il cerchio per la via più breve invece di saltare
+function drawSelectedChargeMarker() {
+  if (!magicCircle || magicCircle.projections.length < 2) return; // con una sola carica non c'è scelta
+
+  const target = chargeAngle(magicCircle.selected, magicCircle.projections.length);
+  if (magicCircle.markerAngle === undefined) magicCircle.markerAngle = target;
+  const diff = Math.atan2(Math.sin(target - magicCircle.markerAngle), Math.cos(target - magicCircle.markerAngle));
+  magicCircle.markerAngle += diff * Math.min(1, 0.22 * frameScale);
+
+  const { x, y } = chargePosition(magicCircle.selected, magicCircle.markerAngle);
+  const color = circleColorOf(magicCircle);
+  const radius = magicCircle.radius * 0.4 * (1 + Math.sin(performance.now() / 180) * 0.06);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-3 * circleRotation);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 10;
+  // Quattro archi spezzati, come un mirino runico
+  for (let k = 0; k < 4; k++) {
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, k * Math.PI / 2 + 0.3, (k + 1) * Math.PI / 2 - 0.3);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 function drawMagicCircleDragTrail() {
@@ -1166,7 +1246,8 @@ function updateLasers() {
 
   for (const laser of [...lasers]) {
     if (!lasers.includes(laser)) continue; // annullato da un burnout nel frattempo
-    laser.manaTimer += frameMs;
+    // Rigoglioso: non costa mana finché dura (il costo annullerebbe la rigenerazione aumentata)
+    laser.manaTimer = isVariantAlive(laser, 'lush') ? 0 : laser.manaTimer + frameMs;
     while (laser.manaTimer >= LASER_MANA_TICK_MS) {
       laser.manaTimer -= LASER_MANA_TICK_MS;
       const cost = LASER_MANA_PER_TICK * (1 - playerStats.riduzioneMana);
@@ -1481,7 +1562,9 @@ function updateSpazialeAreas() {
   const deltaTime = frameMs / 1000;
   let manaToDrain = 0;
   for (const area of permanentSpazialeAreas) {
-    manaToDrain += area.manaDrain * frameScale * (1 - playerStats.riduzioneMana);
+    // Un'area rigogliosa non costa mana finché dura: altrimenti il suo consumo (~2 mana/s per un'area media)
+    // supererebbe la rigenerazione aumentata e chi la possiede vedrebbe il mana scendere comunque
+    if (!isVariantAlive(area, 'lush')) manaToDrain += area.manaDrain * frameScale * (1 - playerStats.riduzioneMana);
     area.affinityTimer += deltaTime;
     if (area.affinityTimer >= 1) {
       area.affinityTimer -= 1;
@@ -1491,7 +1574,7 @@ function updateSpazialeAreas() {
   }
 
   const currentMana = getCurrentMana();
-  if (currentMana <= manaToDrain) {
+  if (manaToDrain > 0 && currentMana <= manaToDrain) {
     triggerBurnout();
   } else {
     setCurrentMana(currentMana - manaToDrain);
@@ -2588,7 +2671,7 @@ function pathTouchesPolygon(path, polygon) {
 
 // Fuori dall'arena PvP lo schermo è oscurato, con un bordo che ne segna il limite
 function drawArenaFrame() {
-  if (!world.fixedSize) return;
+  if (!world.fixed) return;
   const w = world.width * world.scale;
   const h = world.height * world.scale;
   ctx.save();
@@ -2608,7 +2691,7 @@ function enterWorldSpace() {
   ctx.save();
   ctx.translate(world.offsetX, world.offsetY);
   ctx.scale(world.scale, world.scale);
-  if (world.fixedSize) {
+  if (world.fixed) {
     ctx.beginPath();
     ctx.rect(0, 0, world.width, world.height);
     ctx.clip();
@@ -2636,7 +2719,7 @@ function renderAreaShaders() {
     });
   }
   const t = ctx.getTransform();
-  const clip = world.fixedSize
+  const clip = world.fixed
     ? { x: t.e, y: t.f, width: world.width * t.a, height: world.height * t.d }
     : null;
   areaShader.render(areas, t, clip);
@@ -2714,7 +2797,8 @@ function animate() {
 
   drawCollisionSparks();
   drawMagicCircle();
-  drawNextChargeParticles();
+  if (showChargeParticles) drawNextChargeParticles();
+  if (showChargeReticle) drawSelectedChargeMarker();
   updateMagicInteractions();
   updateProjectiles();
   drawMagmaTrail();

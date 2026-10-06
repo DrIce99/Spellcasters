@@ -235,6 +235,8 @@ class ArenaManager {
             rejoinToken: matchData.rejoinToken,
             opponent: matchData.opponent,
             gameState: matchData.gameState,
+            arenaWidth: matchData.arenaWidth,
+            arenaHeight: matchData.arenaHeight,
             arenaSize: matchData.arenaSize,
             playerRole: matchData.playerRole,
             mode: 'pvp'

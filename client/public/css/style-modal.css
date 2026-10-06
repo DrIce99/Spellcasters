@@ -87,6 +87,32 @@
   padding: 0.7em 1em;
 }
 
+/* Scelta tra più opzioni (es. indicatore della carica): l'opzione attiva è piena */
+.settings-option {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-option-label {
+  font-weight: 600;
+}
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.segmented button {
+  flex: 1;
+  padding: 0.6em 0.8em;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+}
+.segmented button[aria-checked="true"] {
+  --edge: var(--accent);
+  --fill: var(--accent);
+  color: var(--on-accent);
+}
+
 #close-settings {
   align-self: center;
   margin-top: 6px !important;
