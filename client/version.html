@@ -15,13 +15,42 @@
 </head>
 <body>
     <button id="home-btn" class="main-btn">Home</button>
-    <div id="home-container" class="centered">
-        <h1 id="home-title">Spellcasters</h1>
-        <h2 id="version-title" class="version-title">Patch Notes</h2>
-        <!-- Versioni generate da js/data/changelog.js -->
-        <div id="changelog"></div>
-    </div>
+    <!-- Linguette laterali (come Arena ↔ Classifica): una sola visibile alla volta -->
+    <button id="open-balance-btn" class="slide-btn">Bilanciamenti</button>
+    <button id="close-balance-btn" class="slide-btn">Patch Notes</button>
+
     <canvas id="home-fog-canvas"></canvas>
+
+    <!-- Due viste affiancate: patch notes a sinistra, storico dei bilanciamenti a destra -->
+    <section id="notes-view" class="version-view" aria-label="Patch notes">
+        <div class="view-scroll">
+            <div id="home-container" class="centered">
+                <h1 id="home-title">Spellcasters</h1>
+                <h2 id="version-title" class="version-title">Patch Notes</h2>
+                <!-- Versioni generate da js/data/changelog.js -->
+                <div id="changelog"></div>
+            </div>
+        </div>
+    </section>
+
+    <section id="balance-view" class="version-view" aria-label="Storico dei bilanciamenti">
+        <div class="view-scroll">
+            <div id="balance-container">
+                <h1 id="balance-title">Bilanciamenti</h1>
+                <p class="balance-subtitle">Storico di buff e nerf, dal più recente. Le frecce dicono se ogni valore favorisce o sfavorisce chi lancia la magia.</p>
+                <div class="balance-legend" aria-label="Legenda">
+                    <span class="verdict-pill buff">▲ Buff</span>
+                    <span class="verdict-pill nerf">▼ Nerf</span>
+                    <span class="verdict-pill rework">◆ Modifica</span>
+                    <span class="legend-bars"><i class="bar-before"></i> prima <i class="bar-after"></i> dopo</span>
+                </div>
+                <!-- Filtri e schede generati da js/data/balance-history.js -->
+                <div id="balance-filters" class="balance-filters" role="toolbar" aria-label="Filtra per elemento"></div>
+                <div id="balance-history"></div>
+            </div>
+        </div>
+    </section>
+
     <p class="credits">Credits: DrIce</p>
     <script type="module" src="./js/pages/version.page.js"></script>
 </body>

@@ -32,6 +32,7 @@ Spellcasters/
 │   │   │   ├── fx.js              ← effetti nel canvas (onde d'urto, cerchio che si dissolve, tratto che sfuma)
 │   │   │   ├── dollar-recognizer.js, element-patterns.js, status-effects.js, ...
 │   │   │   └── entities/enemy.js
+│   │   ├── data/         ← changelog.js (patch notes), balance-history.js (storico di buff e nerf)
 │   │   ├── services/     ← config.js (URL server, Firebase), firebase.js, player-db.js
 │   │   └── ui/           ← theme.js (giorno/notte), fog-background.js, motion.js (transizioni), sfx.js (suoni sintetizzati)
 │   ├── public/           ← file statici copiati così come sono: css/, sound/, img/
@@ -141,7 +142,7 @@ Cosa succede in base a ciò che si è invocato:
 
 | Elemento | Simbolo | Effetto sull'avversario colpito ¹ | Stato |
 |---|---|---|---|
-| **Fuoco** | una "y" al contrario | brucia: 1 di danno ogni 1.5 s per 4.5 s | ✅ |
+| **Fuoco** | un triangolo rettangolo senza cateto verticale | brucia: 1 di danno ogni 1.5 s per 4.5 s | ✅ |
 | **Acqua** | una goccia | rallentato del 20% per 5 s | ✅ |
 | **Aria** | un giro di molla ("pigtail") | comandi invertiti (assi x e y) per 4 s | ✅ |
 | **Terra** | tre lati di un quadrato, partendo dal lato sinistro dal basso verso l'alto | non può muoversi per 1 s, ogni 1 s, per 3 volte | ✅ |
@@ -153,8 +154,8 @@ Cosa succede in base a ciò che si è invocato:
 | **Metallo** | linea orizzontale, poi obliqua verso l'alto nella stessa direzione, poi verticale verso il basso | resta attratto verso il punto in cui è stato colpito (può comunque muoversi) | 🔜 |
 | **Veleno** | il contorno di un teschio ² | avvelenato per sempre (0.1 di danno); si toglie solo con una magia d'acqua su se stessi (Stato, spaziale, ...) | 🔜 |
 
-¹ Durate di design: nel codice (`status-effects.js`) ci sono ancora quelle precedenti, più brevi
-(fuoco 1 di danno ogni 0.5 s per 1.5 s, acqua e aria 1.5 s, terra 0.5 s alla volta).
+¹ Valori in `ELEMENT_EFFECTS_CONFIG` di `client/js/game/status-effects.js`. Ogni modifica va registrata anche in
+`client/js/data/balance-history.js`, da cui la pagina delle patch notes mostra lo storico dei bilanciamenti.
 ² Per questo riconoscimento vanno ignorati inizio e fine del tratto (troppe combinazioni per gestirle a mano).
 
 Il **cerchio magico** si evoca disegnando un semplice cerchio.
@@ -219,19 +220,22 @@ Regole di design:
 Il mana si vede come un perimetro colorato sul bordo dello schermo: è simmetrico, come una barra di caricamento il cui massimo
 è il centro del lato superiore e il minimo il centro del lato inferiore.
 
-Consumo:
+Consumo (valori nel codice, `engine.js`):
 
 | Cosa | Costo |
 |---|---|
-| Elemento | 1 mana |
-| Proiezione non permanente | 2 mana |
-| Proiezione permanente | mana graduale (ogni 0.1 s) |
-| Proiezione spaziale | in base all'area |
-| Cerchio magico | 0 mana |
-| Cerchio carico di elemento e proiezione non permanente | proiezione × 1.5 🔜 (oggi costa come la proiezione a vuoto) |
-| Cerchio carico di elemento e proiezione permanente | come la proiezione (ogni 0.1 s) |
+| Elemento evocato a vuoto | 1 mana |
+| Cerchio magico, elemento inciso nel cerchio, cariche | 0 mana |
+| Proiettile (a vuoto o dal cerchio, con o senza elemento) | 2 mana |
+| Laser (a vuoto o dal cerchio) | 0.15 mana all'accensione, poi 0.15 ogni 0.1 s (1.5 mana/s) finché resta attivo |
+| Area spaziale | consumo continuo finché resta attiva, proporzionale alla superficie: 0.6 mana/s ogni 10.000 px² (minimo 0.6 mana/s) |
+| Magia rigogliosa (acqua + terra) | nessun consumo finché dura l'effetto |
 
-Se si supera il mana rimasto si va in **burnout** (overload): le magie attive si annullano e non si può castare per 5 secondi.
+Tutti i costi sono ridotti dalla statistica **Riduzione consumo mana**. La rigenerazione di base è 0.3 mana/s (×3 con una magia
+rigogliosa in campo).
+
+Se si supera il mana rimasto si va in **burnout** (overload): le magie attive si annullano e non si può castare per 5 secondi;
+alla fine si riparte dal 20% del mana massimo.
 
 ### Progressione
 

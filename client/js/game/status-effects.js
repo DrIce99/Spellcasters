@@ -1,44 +1,50 @@
 // status-effects.js - Sistema modulare di effetti di stato elementali
 
 // === CONFIGURAZIONE BILANCIAMENTO ===
+// Ogni modifica a questi valori va registrata anche in data/balance-history.js
+// (è da lì che la pagina delle patch notes mostra lo storico di buff e nerf).
+const TERRA_STUN = { duration: 1, interval: 1, count: 3 };
+const TERRA_TOTAL = TERRA_STUN.count * (TERRA_STUN.duration + TERRA_STUN.interval) - TERRA_STUN.interval; // 5 s
+
 export const ELEMENT_EFFECTS_CONFIG = {
     fuoco: {
         name: 'Burning',
         type: 'damage_over_time',
         damage: 1,
-        interval: 0.5, // secondi
-        duration: 1.5,  // secondi
+        interval: 1.5, // secondi
+        duration: 4.5,  // secondi (3 tick)
         icon: '🔥',
         color: '#ff5555',
-        description: 'Brucia per 1 danno ogni 0.5s per 1.5s'
+        description: 'Brucia per 1 danno ogni 1.5s per 4.5s'
     },
     acqua: {
         name: 'Slowed',
         type: 'movement_debuff',
         speedReduction: 0.2, // 20% più lento
-        duration: 1.5,
+        duration: 5,
         icon: '💧',
         color: '#5555ff',
-        description: 'Movimento rallentato del 20% per 1.5s'
+        description: 'Movimento rallentato del 20% per 5s'
     },
     aria: {
         name: 'Confused',
         type: 'control_inversion',
-        duration: 1.5,
+        duration: 4,
         icon: '💨',
         color: '#aaaaee',
-        description: 'Controlli invertiti per 1.5s'
+        description: 'Controlli invertiti per 4s'
     },
     terra: {
         name: 'Stunned',
         type: 'periodic_stun',
-        stunDuration: 0.5,   // durata di ogni stun
-        stunInterval: 0.5,   // intervallo tra stun
-        duration: 1.0, // durata totale (2 stun)
-        totalDuration: 1.0,  // durata totale (2 stun)
+        stunDuration: TERRA_STUN.duration,  // durata di ogni stun
+        stunInterval: TERRA_STUN.interval,  // pausa tra uno stun e il successivo
+        stunCount: TERRA_STUN.count,
+        duration: TERRA_TOTAL,
+        totalDuration: TERRA_TOTAL,
         icon: '🗿',
         color: '#55aa55',
-        description: 'Impossibile muoversi per 0.5s ogni 0.5s per 2 volte'
+        description: 'Impossibile muoversi per 1s ogni 1s per 3 volte'
     }
     // fulmine: i proiettili e i laser non danno effetti a chi colpiscono (rimbalzano);
     // le aree paralizzano (vedi PARALYSIS_CONFIG)
@@ -114,16 +120,34 @@ class BurningEffect extends StatusEffect {
     constructor(config, targetId) {
         super(config, targetId);
         this.nextDamageTime = config.interval;
+        this.totalTicks = Math.round(config.duration / config.interval);
+        this.ticksDone = 0;
         this.nextParticleTime = 0; // ⭐ NUOVO: Timer per particelle
+    }
+
+    // L'ultimo tick cade esattamente alla scadenza: lo si applica prima di disattivare l'effetto
+    // (con l'ordine della classe base andava perso)
+    update(deltaTime) {
+        if (!this.isActive) return false;
+        this.remainingTime -= deltaTime;
+        this.applyEffect(deltaTime);
+        if (this.remainingTime <= 0) {
+            this.deactivate();
+            return false;
+        }
+        return true;
     }
 
     applyEffect(deltaTime) {
         this.nextDamageTime -= deltaTime;
         this.nextParticleTime -= deltaTime; // ⭐ NUOVO
 
-        if (this.nextDamageTime <= 0) {
+        // += interval (e non = interval): il ritardo di un frame non si accumula da un tick all'altro
+        const expiring = this.remainingTime <= 0;
+        while ((this.nextDamageTime <= 0 || expiring) && this.ticksDone < this.totalTicks) {
             StatusEffectManager.dealDamage(this.targetId, this.config.damage, 'burning');
-            this.nextDamageTime = this.config.interval;
+            this.ticksDone++;
+            this.nextDamageTime += this.config.interval;
             StatusEffectManager.showBurningEffect(this.targetId);
         }
 
@@ -188,7 +212,7 @@ class StunnedEffect extends StatusEffect {
         this.nextStunTime = 0;
         this.stunCount = 0;
         // Ciclo: stun (stunDuration) + pausa (stunInterval)
-        this.maxStuns = Math.ceil(config.totalDuration / (config.stunDuration + config.stunInterval));
+        this.maxStuns = config.stunCount ?? Math.ceil(config.totalDuration / (config.stunDuration + config.stunInterval));
         this.currentStunRemaining = 0;
         this.nextParticleTime = 0; // ⭐ NUOVO
 
@@ -491,20 +515,8 @@ export function updateElementConfig(element, newConfig) {
     }
 }
 
-// Esempi per future modifiche di bilanciamento:
-/*
-// Nerf del fuoco (meno danno)
-updateElementConfig('fuoco', { damage: 0.5 });
-*/
-// Buff dell'acqua (più durata)
-updateElementConfig('acqua', { speedReduction: 0.6 });
-
-
-// Modifica aria (durata più corta)
-// updateElementConfig('aria', { duration: 1.0 });
-
-// Nerf terra (meno stun)
-updateElementConfig('terra', { totalDuration: 1.5, duration: 1.5 });
+// I valori di bilanciamento stanno solo in ELEMENT_EFFECTS_CONFIG (in cima al file):
+// niente sovrascritture qui, altrimenti il codice non corrisponde più a README e storico dei bilanciamenti.
 
 
 export function createElementalDebuffParticles(element, position, activeMagicParticles) {

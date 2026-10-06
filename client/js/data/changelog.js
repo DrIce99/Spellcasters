@@ -11,6 +11,32 @@ export const CHANGE_TYPES = {
 
 export const CHANGELOG = [
   {
+    version: '0.12.0',
+    date: '2026-10-06',
+    title: 'Animazioni, suoni e bilanciamenti',
+    changes: {
+      feature: [
+        'Transizioni animate tra le pagine, ingressi a cascata, modali e pannelli animati, cambio tema a cerchio',
+        'Nuovi effetti sonori di interfaccia e di gioco: cerchio evocato, runa incisa, simbolo fallito, annullamento, burnout, salita di livello, colpi ed esito della partita',
+        'Effetti visivi in partita: il cerchio magico si disegna comparendo e si dissolve sparendo, il tratto del simbolo sfuma, onde d\'urto e lampi',
+        'Rotella del mouse: sceglie quale carica del cerchio magico lanciare, con un mirino sulla carica selezionata',
+        'Impostazioni: indicatore della carica selezionata (nessuno, particelle, mirino o entrambi)',
+        'Patch notes: nuova scheda "Bilanciamenti" con lo storico di buff e nerf'
+      ],
+      logic: [
+        'Bilanciamento degli effetti elementali (fuoco, acqua, aria e terra): i dettagli sono nella scheda Bilanciamenti',
+        'PvP: l\'arena è il rettangolo visibile da entrambi i giocatori (prima era un quadrato più piccolo)',
+        'Le magie rigogliose (acqua + terra) non consumano mana finché dura l\'effetto'
+      ],
+      fix: [
+        'La rigenerazione aumentata delle magie rigogliose non si vedeva: il consumo dell\'area era più alto del bonus',
+        'La bruciatura del fuoco perdeva l\'ultimo danno',
+        'Tema notte: niente più lampo chiaro all\'apertura delle pagine',
+        'Impostazioni: barre di scorrimento inutili nel riquadro'
+      ]
+    }
+  },
+  {
     version: '0.11.0',
     date: '2026-10-03',
     title: 'Fulmine e Laser',
