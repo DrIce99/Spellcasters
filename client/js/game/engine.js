@@ -15,13 +15,14 @@ import {
 } from './damage-effects.js';
 import { spawnRing, spawnCircleCollapse, spawnStrokeFade, drawFx, easeOutBack, easeOutCubic } from './fx.js';
 import { playSfx } from '../ui/sfx.js';
+import { matchesAction } from '../ui/keybindings.js';
 import { showBanner, replayClass } from '../ui/motion.js';
 import {
   statusEffectManager, applyElementalHit, applyParalysis, updateStatusEffects, createElementalDebuffParticles
 } from "./status-effects.js";
 import { audioManager } from './audio-manager.js';
 import {
-  ELEMENTS, isElement, getElementColor, getOpponentElementColor, parseColor, withAlpha,
+  ELEMENTS, isElement, isSymbol, getElementColor, getOpponentElementColor, parseColor, withAlpha,
   NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR, DEFAULT_SPAZIALE_COLOR
 } from './elements.js';
 import { getExpToNext, BURNOUT_FRAMES } from './progression.js';
@@ -181,6 +182,7 @@ let playerLoaded = false;
 // Buffer salvati periodicamente su Firebase
 let affinityToAdd = {};
 let proiezioniToAdd = {};
+let segniToAdd = {};
 let expToAdd = 0;
 
 // L'esperienza si guadagna solo in una partita PvP online (non in training né in laboratorio)
@@ -438,11 +440,11 @@ window.addEventListener("resize", layoutWorld);
 
 
 // ============================================================
-// INPUT: TASTIERA (i tasti N/G per il tema sono gestiti da theme.js)
+// INPUT: TASTIERA (tasti rimappabili da keybindings.js; quelli del tema sono gestiti da theme.js)
 // ============================================================
 
 window.addEventListener("keydown", (e) => {
-  if ((e.key === "z" || e.key === "Z") && !casting && canAct()) {
+  if (matchesAction(e, 'cast') && !casting && canAct()) {
     casting = true;
     points = [];
   }
@@ -456,13 +458,13 @@ window.addEventListener("keydown", (e) => {
 });
 
 window.addEventListener("keyup", (e) => {
-  if ((e.key === "z" || e.key === "Z") && casting) {
+  if (matchesAction(e, 'cast') && casting) {
     casting = false;
     recognizeSpell(points);
     points = [];
     canvas.style.boxShadow = "none";
   }
-  if ((e.key === 'x' || e.key === 'X') && isPointerLocked() && canAct()) {
+  if (matchesAction(e, 'cancel') && isPointerLocked() && canAct()) {
     cancelAtVirtualMouse();
   }
 });
@@ -500,6 +502,8 @@ function recognizeSpell(stroke) {
     : name === 'cerchio' ? EMPTY_CIRCLE_COLOR
     : magicCircle ? circleColorOf(magicCircle) : NEUTRAL_COLOR;
   spawnStrokeFade(stroke, { color: withAlpha(symbolColor, 0.9), glow: symbolColor });
+  // Più un segno viene disegnato, più il suo riconoscimento diventa tollerante (come l'affinità per gli elementi)
+  if (isSymbol(name)) incrementaSegnoDisegnatoBuffer(name);
 
   // Dentro un cerchio magico i simboli caricano il cerchio invece di lanciare
   if (magicCircle) {
@@ -1684,8 +1688,13 @@ function getAllPermanentSpells() {
   return [...permanentSpazialeAreas, ...getOpponentAreas(), ...lasers, ...getOpponentLasers()];
 }
 
+// La rigenerazione aumentata vale solo per chi sta dentro una magia rigogliosa:
+// dentro il poligono di un'area o a contatto con il raggio di un laser
 function isLushActive() {
-  return getAllPermanentSpells().some(s => isVariantAlive(s, 'lush'));
+  const now = Date.now();
+  const inside = (s) => s.points ? pointInPolygon(playerBody, s.points)
+    : distanceToPath(playerBody, s.path) <= LASER_HIT_RADIUS;
+  return getAllPermanentSpells().some(s => isVariantAlive(s, 'lush', now) && inside(s));
 }
 
 function damageLocalPlayer(amount, element = null) {
@@ -2319,7 +2328,7 @@ function regenMana() {
       playSfx('manaRestored');
     }
   } else if (mana < manaMax) {
-    // Magie rigogliose in campo: rigenerazione aumentata per entrambi i caster
+    // Dentro una magia rigogliosa: rigenerazione aumentata (vale per entrambi i caster)
     const regenMultiplier = isLushActive() ? LUSH_MANA_REGEN_MULTIPLIER : 1;
     mana = Math.min(manaMax, mana + manaRecoverSpeed * regenMultiplier * frameScale);
   }
@@ -2332,6 +2341,10 @@ function incrementaAffinitaBuffer(elemento, valore = 1) {
 
 function incrementaProiezioneUsataBuffer(tipo, valore = 1) {
   proiezioniToAdd[tipo] = (proiezioniToAdd[tipo] || 0) + valore;
+}
+
+function incrementaSegnoDisegnatoBuffer(segno) {
+  segniToAdd[segno] = (segniToAdd[segno] || 0) + 1;
 }
 
 // Esperienza, livello e mana sono tenuti in memoria (questa pagina è l'unica a modificarli)
@@ -2362,10 +2375,11 @@ function flushExperience() {
 }
 
 function flushCounters() {
-  if (Object.keys(affinityToAdd).length === 0 && Object.keys(proiezioniToAdd).length === 0) return;
-  const groups = { affinita: affinityToAdd, proiezioniUsate: proiezioniToAdd };
+  const groups = { affinita: affinityToAdd, proiezioniUsate: proiezioniToAdd, segniDisegnati: segniToAdd };
+  if (Object.values(groups).every(group => Object.keys(group).length === 0)) return;
   affinityToAdd = {};
   proiezioniToAdd = {};
+  segniToAdd = {};
   incrementPlayerCounters(username, groups)
     .catch(error => console.error('❌ Errore salvataggio affinità/proiezioni:', error));
 }

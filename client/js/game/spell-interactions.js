@@ -6,7 +6,7 @@
 // Effetti possibili su una magia:
 //   remove  -> la magia sparisce (spenta, dissolta...)
 //   ignite  -> diventa fuoco (e, per aree e laser, passa al giocatore che ha lanciato il fuoco)
-//   lush    -> diventa rigogliosa: rigenerazione di mana aumentata per entrambi i caster
+//   lush    -> diventa rigogliosa: rigenerazione di mana aumentata per chi ci sta dentro (entrambi i caster)
 //   magma   -> diventa magma: danneggia entrambi i caster (i proiettili lasciano una scia)
 //   charged -> si carica di elettricità: danneggia entrambi i caster (i proiettili folgorano chi è vicino)
 

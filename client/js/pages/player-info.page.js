@@ -1,15 +1,17 @@
 // player-info.page.js - Statistiche del giocatore e grafici radar (Chart.js da CDN)
 import { initColorTheme, onColorThemeChange } from '../ui/theme.js';
+import { setPageFavicon } from '../ui/favicon.js';
 import { getPlayerData, getCurrentUsername, spendSkillPoint } from '../services/player-db.js';
 import { getExpToNext } from '../game/progression.js';
 import {
   SKILLS, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, computePlayerStats, getSkillValue, isSkillMaxed, getAtkMultiplier
 } from '../game/player-stats.js';
-import { ELEMENTS, PROJECTIONS, getElementColor } from '../game/elements.js';
+import { ELEMENTS, PROJECTIONS, SYMBOLS, getElementColor, NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR } from '../game/elements.js';
 import { navigateTo, replayClass, shake } from '../ui/motion.js';
 import { playSfx } from '../ui/sfx.js';
 
 initColorTheme();
+setPageFavicon({ element: 'terra' }); // icona della scheda: un cerchio magico diverso per ogni pagina
 
 function getUsernameFromQuery() {
   return new URLSearchParams(window.location.search).get('user');
@@ -249,17 +251,11 @@ function atkInfoRow(stats) {
   return li;
 }
 
-function marginsRow(stats) {
-  const li = makeElement('li', 'stat-margins');
-  li.appendChild(makeElement('span', 'stat-label', 'Margine di errore'));
-  const values = makeElement('span', 'stat-margins-values');
-  for (const element of ELEMENTS) {
-    const item = makeElement('span', 'stat-element', `${capitalize(element)} ${formatPercent(stats.recognitionMargin[element])}`);
-    item.style.setProperty('--el', getElementColor(element));
-    values.appendChild(item);
-  }
-  li.appendChild(values);
-  return li;
+// Margine di errore nel disegno di un simbolo: per gli elementi cresce con l'affinità,
+// per cerchio e proiezioni con le volte che sono stati disegnati
+function marginRow(name, stats) {
+  const color = ELEMENTS.includes(name) ? getElementColor(name) : name === 'cerchio' ? EMPTY_CIRCLE_COLOR : NEUTRAL_COLOR;
+  return statRow(`Margine di errore ${capitalize(name)}`, formatPercent(stats.recognitionMargin[name]), { labelColor: color });
 }
 
 function renderStats(data) {
@@ -284,7 +280,9 @@ function renderStats(data) {
     statRow('Tasso CRIT', formatPercent(stats.critRate)),
     statRow('DMG CRIT', formatPercent(stats.critDmg)),
     divider(),
-    marginsRow(stats)
+    ...ELEMENTS.map(e => marginRow(e, stats)),
+    divider(),
+    ...SYMBOLS.map(s => marginRow(s, stats))
   ];
   list.replaceChildren(...rows);
 }

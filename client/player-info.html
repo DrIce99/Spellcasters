@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Info Giocatore - Spellcasters</title>
+  <link rel="icon" href="data:,"> <!-- sostituita da js/ui/favicon.js con un cerchio magico -->
   <link rel="stylesheet" href="/css/style-base.css">
   <link rel="stylesheet" href="/css/style-buttons.css">
   <link rel="stylesheet" href="/css/style-home.css">
@@ -157,8 +158,7 @@
       color: var(--text);
     }
     /* Pad colorato dell'elemento: il colore non va sul testo, che resta leggibile */
-    .stat-label.element::before,
-    .stat-element::before {
+    .stat-label.element::before {
       content: '';
       width: 9px;
       height: 9px;
@@ -208,20 +208,6 @@
       color: var(--text);
       background: var(--tint);
       box-shadow: inset 3px 0 0 var(--accent);
-    }
-    .stats-list li.stat-margins { flex-wrap: wrap; }
-    .stat-margins-values {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px 16px;
-      justify-content: flex-end;
-    }
-    .stat-element {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
     }
     #stats-error {
       min-height: 1.2em;

@@ -1,6 +1,7 @@
 // version.page.js - Pagina delle patch notes (dati in data/changelog.js) e, nella vista a destra,
 // storico dei bilanciamenti (dati in data/balance-history.js)
 import { initColorTheme } from '../ui/theme.js';
+import { setPageFavicon } from '../ui/favicon.js';
 import { startFogBackground } from '../ui/fog-background.js';
 import { CHANGELOG, CHANGE_TYPES, CURRENT_VERSION } from '../data/changelog.js';
 import { BALANCE_HISTORY, VERDICTS } from '../data/balance-history.js';
@@ -9,6 +10,7 @@ import { navigateTo } from '../ui/motion.js';
 import { playSfx } from '../ui/sfx.js';
 
 initColorTheme();
+setPageFavicon({ element: 'aria' }); // icona della scheda: un cerchio magico diverso per ogni pagina
 
 document.getElementById('home-btn').addEventListener('click', () => navigateTo('/home.html'));
 

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Spellcasters - Home</title>
+  <link rel="icon" href="data:,"> <!-- sostituita da js/ui/favicon.js con un cerchio magico -->
   <link rel="stylesheet" href="/css/style-base.css">
   <link rel="stylesheet" href="/css/style-buttons.css">
   <link rel="stylesheet" href="/css/style-home.css">
@@ -38,7 +39,9 @@
           <span id="audio-volume-value">50%</span>
         </label>
       </div>
-      <div id="theme-toggle-container" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;"></div>
+      <div id="theme-toggle-container" class="settings-row">
+        <span class="settings-option-label">Tema colore:</span>
+      </div>
       <div class="settings-option">
         <span class="settings-option-label">Indicatore della carica selezionata nel cerchio:</span>
         <div id="charge-indicator-options" class="segmented" role="radiogroup" aria-label="Indicatore della carica selezionata">
@@ -49,13 +52,13 @@
         </div>
       </div>
 
-      <label style="font-size:1.15em;">Key Bindings (prossimamente personalizzabili):</label>
+      <label style="font-size:1.15em;">Key Bindings (clicca un tasto per cambiarlo):</label>
       <div class="keybindings-list">
-        <div class="keybinding-row"><span class="key">Z</span><span>Inizia/disegna spell</span></div>
-        <div class="keybinding-row"><span class="key">G</span><span>Tema giorno</span></div>
-        <div class="keybinding-row"><span class="key">N</span><span>Tema notte</span></div>
-        <div class="keybinding-row"><span class="key">RMB / X</span><span>Annulla cerchio magico / area spaziale</span></div>
-        <div class="keybinding-row"><span class="key">Rotella</span><span>Cambia la carica del cerchio da lanciare</span></div>
+        <!-- Le righe dei tasti rimappabili sono generate da home.page.js -->
+        <div id="keybindings-custom" class="keybindings-list"></div>
+        <div class="keybinding-row"><span class="keybinding-label">Annulla cerchio magico / magia attiva</span><span class="key">RMB</span></div>
+        <div class="keybinding-row"><span class="keybinding-label">Cambia la carica del cerchio da lanciare</span><span class="key">Rotella</span></div>
+        <button type="button" id="reset-keybindings" class="keybindings-reset">Ripristina predefiniti</button>
       </div>
       <button id="close-settings" class="main-btn" style="margin-top:24px;">Chiudi</button>
     </div>

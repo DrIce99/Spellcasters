@@ -1,5 +1,6 @@
 // theme.js - Tema colore (giorno/notte) ed effetto hover dei pulsanti
 import { playSfx } from './sfx.js';
+import { matchesAction } from './keybindings.js';
 
 // --- Color Theme (Day/Night) ---
 let currentColorTheme = 'day';
@@ -76,12 +77,12 @@ function createColorThemeToggle() {
   return btn;
 }
 
-// Tasti N/G per il tema colore (ignorati mentre si scrive in un campo di testo)
+// Tasti del tema colore (↑/↓ di default, rimappabili; ignorati mentre si scrive in un campo di testo)
 window.addEventListener("keydown", (e) => {
   const active = document.activeElement;
   if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
-  if (e.key === 'n' || e.key === 'N') switchColorTheme('night');
-  if (e.key === 'g' || e.key === 'G') switchColorTheme('day');
+  if (matchesAction(e, 'themeNight')) switchColorTheme('night');
+  if (matchesAction(e, 'themeDay')) switchColorTheme('day');
 });
 
 

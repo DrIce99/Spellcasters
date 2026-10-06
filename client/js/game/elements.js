@@ -2,6 +2,8 @@
 
 export const ELEMENTS = ['fuoco', 'acqua', 'aria', 'terra', 'fulmine'];
 export const PROJECTIONS = ['proiettile', 'spaziale', 'laser'];
+// Segni non elementali: il cerchio magico e le proiezioni
+export const SYMBOLS = ['cerchio', ...PROJECTIONS];
 
 export const ELEMENT_COLORS = {
   fuoco: '#ff5555',
@@ -32,6 +34,10 @@ export function isElement(name) {
 
 export function isProjection(name) {
   return PROJECTIONS.includes(name);
+}
+
+export function isSymbol(name) {
+  return SYMBOLS.includes(name);
 }
 
 export function getElementColor(element) {

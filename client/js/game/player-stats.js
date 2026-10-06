@@ -1,6 +1,6 @@
 // player-stats.js - Statistiche del giocatore: punti abilità, affinità e valori derivati.
 // Unico posto in cui sono definite le formule: lo usano il gioco, l'arena e la pagina info.
-import { ELEMENTS } from './elements.js';
+import { ELEMENTS, SYMBOLS } from './elements.js';
 
 // Statistiche potenziabili con i punti abilità (salvati su DB in `puntiAbilita`)
 export const SKILLS = {
@@ -26,9 +26,15 @@ const AFFINITY_SCALE = 500;
 const MAX_AFFINITY_DEF = 0.30;              // 30% di difesa dall'elemento
 const BASE_RECOGNITION_MARGIN = 0.40;       // errore tollerato nel disegno (soglia 60%)
 const MAX_AFFINITY_RECOGNITION_BONUS = 0.10;
+// Cerchio e proiezioni: il margine cresce con il numero di volte che il segno è stato disegnato
+const SYMBOL_PRACTICE_SCALE = 300;
 
 function affinityCurve(affinity) {
   return 1 - Math.exp(-Math.max(0, affinity || 0) / AFFINITY_SCALE);
+}
+
+function practiceCurve(timesDrawn) {
+  return 1 - Math.exp(-Math.max(0, timesDrawn || 0) / SYMBOL_PRACTICE_SCALE);
 }
 
 function sanitizeAllocation(raw) {
@@ -66,6 +72,7 @@ export function computePlayerStats(playerData = {}) {
   const allocation = sanitizeAllocation(playerData.puntiAbilita);
   const spent = Object.values(allocation).reduce((sum, n) => sum + n, 0);
   const affinity = playerData.affinita || {};
+  const timesDrawn = playerData.segniDisegnati || {};
 
   const atk = getSkillValue('atk', allocation.atk);
   const atkMultiplier = getAtkMultiplier(atk);
@@ -78,6 +85,9 @@ export function computePlayerStats(playerData = {}) {
     elementDmgBonus[element] = 0; // nessuna fonte per ora
     elementDef[element] = MAX_AFFINITY_DEF * curve;
     recognitionMargin[element] = BASE_RECOGNITION_MARGIN + MAX_AFFINITY_RECOGNITION_BONUS * curve;
+  }
+  for (const symbol of SYMBOLS) {
+    recognitionMargin[symbol] = BASE_RECOGNITION_MARGIN + MAX_AFFINITY_RECOGNITION_BONUS * practiceCurve(timesDrawn[symbol]);
   }
 
   return {

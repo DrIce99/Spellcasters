@@ -2,11 +2,13 @@
 import { getAnalytics, isSupported } from "firebase/analytics";
 import { app } from '../services/firebase.js';
 import { initColorTheme } from '../ui/theme.js';
+import { setPageFavicon } from '../ui/favicon.js';
 import { savePlayerData, getPlayerData, createDefaultPlayer } from '../services/player-db.js';
 import { navigateTo, shake, swapPanels } from '../ui/motion.js';
 import { playSfx } from '../ui/sfx.js';
 
 initColorTheme();
+setPageFavicon(); // icona della scheda: un cerchio vuoto, il primo che si impara a disegnare
 isSupported().then(supported => { if (supported) getAnalytics(app); });
 
 const loginForm = document.getElementById('login-form');

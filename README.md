@@ -107,7 +107,9 @@ Legenda dello stato: ✅ implementato · 🔜 da implementare
 | **Click sinistro sul cerchio + trascinamento** | Lancia la carica selezionata nella direzione del trascinamento (per la spaziale: si disegna il perimetro) | ✅ |
 | **Rotella** | Sceglie quale carica del cerchio lanciare | ✅ |
 | **S** (tenendo premuto il tasto sinistro) | Salva il cerchio magico nello spellbook | 🔜 |
-| **G** / **N** | Tema giorno / notte | ✅ |
+| **↑** / **↓** | Tema giorno / notte | ✅ |
+
+Z, X e i tasti del tema si possono riassegnare da **Impostazioni → Key Bindings** (salvati nel browser).
 
 Regole del disegno virtuale:
 - non si possono sparare proiettili a vuoto, solo dai cerchi magici;
@@ -181,7 +183,7 @@ Regole di design:
 - **Aria ↔ Acqua**: l'acqua si dissolve.
 - **Fulmine ↔ Acqua**: l'acqua si elettrifica e danneggia entrambi i caster.
 - **Aria** ignora il **Fulmine**.
-- **Acqua ↔ Terra**: la magia diventa rigogliosa e aumenta la rigenerazione di mana di entrambi i caster.
+- **Acqua ↔ Terra**: la magia diventa rigogliosa e aumenta la rigenerazione di mana di chi (tra i due caster) si trova al suo interno.
 - **Fuoco ↔ Terra**: diventa magma e danneggia entrambi i caster; una proiezione di magma lascia una scia per 2.5 s.
 - **Terra**: le proiezioni di terra ignorano le aree di fulmine, mentre le proiezioni di fulmine sono bloccate dalle aree di terra.
   A parte le interazioni sopra, l'area di terra blocca le proiezioni che la toccano.
@@ -200,7 +202,7 @@ Regole di design:
 **Stato implementazione** (regole in `client/js/game/spell-interactions.js`, solo con gli elementi attuali; valgono per proiettili, laser e aree spaziali):
 
 - acqua spegne fuoco; fuoco incendia aria (l'area passa a chi ha lanciato il fuoco); aria dissolve acqua
-- acqua + terra = rigoglio (12 s, rigenerazione mana ×3 per entrambi; finché è rigogliosa la magia non consuma mana a chi la possiede)
+- acqua + terra = rigoglio (12 s, rigenerazione mana ×3 per chi sta dentro l'area o a contatto con il laser; finché è rigogliosa la magia non consuma mana a chi la possiede)
 - fuoco + terra = magma (5 s, danno a entrambi in base alla media degli ATK di chi ha lanciato fuoco e terra; i proiettili lasciano una scia di 2.5 s)
 - fulmine + acqua = elettrificata (4 s, danno a entrambi in base alla media degli ATK; un proiettile elettrificato folgora chi gli passa vicino)
 - l'aria ignora il fulmine; le proiezioni di terra attraversano le aree di fulmine; l'area di terra blocca i proiettili che non reagiscono con lei
@@ -247,6 +249,8 @@ Formule in `client/js/game/player-stats.js`.
   Su Firestore si salva `puntiAbilita` (punti spesi per statistica); i punti non spesi = (livello − 1) − somma.
 - L'affinità con un elemento dà passivamente difesa da quell'elemento (fino al 30%) e un margine di errore maggiore
   nel disegnarne la runa (dal 40% fino al 50%).
+- Allo stesso modo il cerchio e le proiezioni (proiettile, spaziale, laser) diventano più facili da riconoscere
+  quante più volte vengono disegnati (dal 40% fino al 50%; contatore `segniDisegnati` su Firestore).
 - Bonus danno elementale, tasso CRIT e DMG CRIT sono mostrati ma per ora restano a 0.
 - In futuro: matchmaking bilanciato in base al livello.
 

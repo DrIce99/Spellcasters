@@ -16,6 +16,7 @@ export function createDefaultPlayer(username, password = '') {
     livello: 1,
     affinita: {},        // {fuoco: n, acqua: n, ...}
     proiezioniUsate: {}, // {proiettile: n, spaziale: n}
+    segniDisegnati: {},  // {cerchio: n, proiettile: n, spaziale: n, laser: n}: volte che il segno è stato riconosciuto
     mana: SKILLS.mp.base,
     puntiAbilita: {},    // {hp: n, atk: n, mp: n, riduzioneMana: n}: i non spesi = (livello - 1) - somma
     vittorie: 0,

@@ -3,6 +3,7 @@ import { getPlayerData } from '../services/player-db.js';
 import { WS_URL } from '../services/config.js';
 import { computePlayerStats, getCombatStats } from '../game/player-stats.js';
 import { initColorTheme } from '../ui/theme.js';
+import { setPageFavicon } from '../ui/favicon.js';
 import { navigateTo, replayClass, setCounter } from '../ui/motion.js';
 import { playSfx } from '../ui/sfx.js';
 
@@ -403,4 +404,5 @@ class ArenaManager {
 }
 
 initColorTheme();
+setPageFavicon({ element: 'fulmine' }); // icona della scheda: un cerchio magico diverso per ogni pagina
 new ArenaManager();
