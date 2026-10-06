@@ -24,7 +24,7 @@ Spellcasters/
 │   │   │   ├── dollar-recognizer.js, element-patterns.js, status-effects.js, ...
 │   │   │   └── entities/enemy.js
 │   │   ├── services/     ← config.js (URL server, Firebase), firebase.js, player-db.js
-│   │   └── ui/           ← theme.js (giorno/notte), fog-background.js
+│   │   └── ui/           ← theme.js (giorno/notte), fog-background.js, motion.js (transizioni), sfx.js (suoni sintetizzati)
 │   ├── public/           ← file statici copiati così come sono: css/, sound/, img/
 │   └── dev/              ← pagine di sviluppo NON incluse nella build (preview pattern, prototipo Open World)
 └── server/
@@ -148,6 +148,8 @@ Proiezioni:
 - suoni dei laser: per ogni elemento `client/public/sound/sfx/lasr/<elemento>-lasr-init.wav` (suonato una volta all'accensione) seguito senza stacchi dal loop `<elemento>-lasr-cont.wav`. Il laser neutro usa `magk`; un elemento nuovo va aggiunto in `soundFiles` e `laserSoundTypes` di `audio-manager.js` (senza, usa i suoni neutri)
 - il ronzio delle aree di fulmine e il rimbalzo del fulmine sono generati via Web Audio (`createSynthesizedSounds`)
 - i file audio vanno messi in `client/public/sound/`, non in `dist/` (che viene svuotata a ogni build)
+- transizioni: per cambiare pagina si usa `navigateTo(url)` di `client/js/ui/motion.js` (velo a iride con il cerchio runico), le animazioni sono in `client/public/css/style-motion.css`; gli effetti nel canvas (onde d'urto, cerchio che si dissolve, tratto che sfuma) in `client/js/game/fx.js`
+- i suoni brevi di interfaccia e di transizione (click, cambio pagina, cerchio evocato, runa incisa, simbolo fallito, annullamento, burnout, livello, colpi, esito) sono sintetizzati in `client/js/ui/sfx.js`: per sostituirne uno con un file basta aggiungere il percorso in `SFX_FILES` con la stessa chiave
 
 **Progressione** (formule in `client/js/game/player-stats.js`):
 

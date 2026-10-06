@@ -3,6 +3,8 @@ import { getPlayerData } from '../services/player-db.js';
 import { WS_URL } from '../services/config.js';
 import { computePlayerStats, getCombatStats } from '../game/player-stats.js';
 import { initColorTheme } from '../ui/theme.js';
+import { navigateTo, replayClass, setCounter } from '../ui/motion.js';
+import { playSfx } from '../ui/sfx.js';
 
 class ArenaManager {
     constructor() {
@@ -73,11 +75,11 @@ class ArenaManager {
 
         document.getElementById('home-btn').addEventListener('click', () => {
             this.leaveMatchmaking();
-            window.location.href = '/home.html';
+            navigateTo('/home.html');
         });
 
         document.getElementById('training-btn').addEventListener('click', () => {
-            window.location.href = '/game.html?mode=training';
+            navigateTo('/game.html?mode=training');
         });
 
         document.getElementById('open-leaderboard-btn').addEventListener('click', () => this.showLeaderboard());
@@ -219,6 +221,7 @@ class ArenaManager {
         this.matchmakingStatus = 'found';
         this.updateMatchmakingUI();
         this.updateStatusMessage(`Match trovato! Avversario: ${data.opponent.username} (Liv. ${data.opponent.level})`);
+        playSfx('matchFound');
 
         // Mostra le informazioni del match per qualche secondo prima di iniziare
         setTimeout(() => this.startMatch(data), 3000);
@@ -238,7 +241,7 @@ class ArenaManager {
         }));
 
         this.isLeaving = true;
-        window.location.href = '/game.html?mode=pvp';
+        navigateTo('/game.html?mode=pvp');
     }
 
     toggleMatchmaking() {
@@ -285,6 +288,8 @@ class ArenaManager {
 
     updateMatchmakingUI() {
         const btn = document.getElementById('matchmaking-btn');
+        // Lo stato guida le animazioni del riquadro (style-motion.css)
+        document.getElementById('matchmaking-status').dataset.state = this.matchmakingStatus;
         switch (this.matchmakingStatus) {
             case 'idle':
                 btn.textContent = 'Cerca Partita';
@@ -303,7 +308,9 @@ class ArenaManager {
 
     updateStatusMessage(message) {
         const statusElement = document.getElementById('status-message');
-        if (statusElement) statusElement.textContent = message;
+        if (!statusElement || statusElement.textContent === message) return;
+        statusElement.textContent = message;
+        replayClass(statusElement, 'text-swap');
     }
 
     updateConnectionStatus(status) {
@@ -318,17 +325,16 @@ class ArenaManager {
     }
 
     updateOnlineCount(count) {
-        const element = document.getElementById('online-players-count');
-        if (element) element.textContent = count;
+        setCounter(document.getElementById('online-players-count'), count);
     }
 
     updateReadyCount(count) {
-        const element = document.getElementById('ready-players-count');
-        if (element) element.textContent = count;
+        setCounter(document.getElementById('ready-players-count'), count);
     }
 
     showLeaderboard() {
         document.body.classList.add('show-leaderboard');
+        playSfx('slide', { direction: -1 });
         if (!this.send({ type: 'requestLeaderboard' })) {
             this.updateStatusMessage('Non connesso al server per la classifica.');
             return;
@@ -338,6 +344,7 @@ class ArenaManager {
 
     hideLeaderboard() {
         document.body.classList.remove('show-leaderboard');
+        playSfx('slide', { direction: 1 });
     }
 
     renderLeaderboard(leaderboard) {
@@ -367,6 +374,7 @@ class ArenaManager {
         const rankClasses = ['gold-rank', 'silver-rank', 'bronze-rank'];
         leaderboard.forEach((player, index) => {
             const li = document.createElement('li');
+            li.style.setProperty('--i', index + 1); // ritardo dell'ingresso a cascata
             // textContent (non innerHTML): i nomi utente sono scelti dai giocatori
             const cells = [
                 ['rank', `#${index + 1}`],

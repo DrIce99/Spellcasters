@@ -40,3 +40,33 @@ export function drawRedOverlay(ctx, canvas) {
         ctx.restore();
     }
 }
+// Lampo a tutto schermo che si spegne da solo (colpo subito, burnout, mana ripristinato...)
+let flashColor = '#ffffff';
+let flashAlpha = 0;
+let flashStart = 0;
+let flashDuration = 0;
+
+export function triggerScreenFlash(color = '#ffffff', alpha = 0.3, duration = 300) {
+    // Un lampo più debole non copre uno più forte ancora in corso
+    if (currentFlashAlpha() > alpha) return;
+    flashColor = color;
+    flashAlpha = alpha;
+    flashStart = performance.now();
+    flashDuration = duration;
+}
+
+function currentFlashAlpha() {
+    if (flashDuration <= 0) return 0;
+    const t = (performance.now() - flashStart) / flashDuration;
+    return t >= 1 ? 0 : flashAlpha * (1 - t) * (1 - t);
+}
+
+export function drawScreenFlash(ctx, canvas) {
+    const alpha = currentFlashAlpha();
+    if (alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = flashColor;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+}

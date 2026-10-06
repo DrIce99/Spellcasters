@@ -3,12 +3,23 @@ import { getAnalytics, isSupported } from "firebase/analytics";
 import { app } from '../services/firebase.js';
 import { initColorTheme } from '../ui/theme.js';
 import { savePlayerData, getPlayerData, createDefaultPlayer } from '../services/player-db.js';
+import { navigateTo, shake, swapPanels } from '../ui/motion.js';
+import { playSfx } from '../ui/sfx.js';
 
 initColorTheme();
 isSupported().then(supported => { if (supported) getAnalytics(app); });
 
+const loginForm = document.getElementById('login-form');
+const signupForm = document.getElementById('signup-form');
 const loginError = document.getElementById('login-error');
 const signupError = document.getElementById('signup-error');
+
+// Errore: messaggio, pannello che "scuote" e suono
+function showError(form, errorEl, message) {
+  errorEl.textContent = message;
+  shake(form);
+  playSfx('error');
+}
 
 async function hashPassword(password) {
   const data = new TextEncoder().encode(password);
@@ -65,14 +76,14 @@ document.getElementById('login-form').onsubmit = async (e) => {
 
   const player = await findPlayer(user);
   if (!player) {
-    loginError.textContent = 'Nome utente o password errati.';
+    showError(loginForm, loginError, 'Nome utente o password errati.');
     return;
   }
 
   const hashed = await hashPassword(pw);
   if (hashed !== player.password) {
     if (encodeLegacyPassword(pw) !== player.password) {
-      loginError.textContent = 'Nome utente o password errati.';
+      showError(loginForm, loginError, 'Nome utente o password errati.');
       return;
     }
     // Account vecchio: aggiorna la password al formato hash
@@ -80,7 +91,8 @@ document.getElementById('login-form').onsubmit = async (e) => {
   }
 
   localStorage.setItem('currentPlayer', user);
-  window.location.href = '/home.html';
+  playSfx('success');
+  navigateTo('/home.html');
 };
 
 // --- Registrazione ---
@@ -90,13 +102,13 @@ document.getElementById('signup-form').onsubmit = async (e) => {
   const user = document.getElementById('signup-username').value.trim();
   const pw = document.getElementById('signup-password').value;
   if (!user || !pw) {
-    signupError.textContent = 'Compila tutti i campi.';
+    showError(signupForm, signupError, 'Compila tutti i campi.');
     return;
   }
 
   try {
     if (await getPlayerData(user)) {
-      signupError.textContent = 'Nome utente già esistente.';
+      showError(signupForm, signupError, 'Nome utente già esistente.');
       return;
     }
     const player = createDefaultPlayer(user, await hashPassword(pw));
@@ -104,21 +116,20 @@ document.getElementById('signup-form').onsubmit = async (e) => {
     saveLocalPlayer(player);
   } catch (error) {
     console.error('❌ Errore registrazione:', error);
-    signupError.textContent = 'Errore di connessione, riprova.';
+    showError(signupForm, signupError, 'Errore di connessione, riprova.');
     return;
   }
 
   signupError.textContent = 'Registrazione avvenuta! Ora puoi fare login.';
+  playSfx('success');
   setTimeout(showLoginForm, 1200);
 };
 
 // --- Switch tra login/registrazione ---
 function showLoginForm() {
-  document.getElementById('signup-form').style.display = 'none';
-  document.getElementById('login-form').style.display = '';
+  if (signupForm.style.display !== 'none') swapPanels(signupForm, loginForm);
 }
 document.getElementById('switch-link').onclick = () => {
-  document.getElementById('login-form').style.display = 'none';
-  document.getElementById('signup-form').style.display = '';
+  if (loginForm.style.display !== 'none') swapPanels(loginForm, signupForm);
 };
 document.getElementById('switch-link2').onclick = showLoginForm;

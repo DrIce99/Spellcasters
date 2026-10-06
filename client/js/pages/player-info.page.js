@@ -6,6 +6,8 @@ import {
   SKILLS, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, computePlayerStats, getSkillValue, isSkillMaxed, getAtkMultiplier
 } from '../game/player-stats.js';
 import { ELEMENTS, PROJECTIONS, getElementColor } from '../game/elements.js';
+import { navigateTo, replayClass, shake } from '../ui/motion.js';
+import { playSfx } from '../ui/sfx.js';
 
 initColorTheme();
 
@@ -195,6 +197,7 @@ function skillRow(key, stats, canSpend, data) {
   const current = getSkillValue(key, points);
   const maxed = isSkillMaxed(key, points);
   const li = statRow(SKILLS[key].label, formatSkill(key, current));
+  li.dataset.skill = key;
 
   if (key === 'atk') {
     const infoBtn = makeElement('button', 'stat-btn info', 'i');
@@ -291,14 +294,24 @@ async function spendPoint(skill) {
   spending = true;
   const errorEl = document.getElementById('stats-error');
   errorEl.textContent = '';
+  let spent = false;
   try {
     await spendSkillPoint(getCurrentUsername(), skill);
+    spent = true;
+    playSfx('spend');
   } catch (error) {
     console.error('❌ Errore nello spendere il punto abilità:', error);
     errorEl.textContent = error.message || 'Impossibile spendere il punto abilità.';
+    playSfx('error');
+    shake(errorEl);
   } finally {
     spending = false;
     await renderPlayerInfo(); // aggiorna anche il mana massimo nella scheda info
+  }
+  if (spent) {
+    // Le righe sono appena state ricreate: fa "saltare" il nuovo valore e i punti rimasti
+    replayClass(document.querySelector(`[data-skill="${skill}"] .stat-value`), 'bump');
+    replayClass(document.getElementById('skill-points-value'), 'bump');
   }
 }
 
@@ -309,11 +322,15 @@ onColorThemeChange(() => {
   if (lastChartData) renderRadarCharts(lastChartData.affinita, lastChartData.predisposizione);
 });
 
-document.getElementById('back-home-btn').onclick = () => {
-  window.location.href = '/home.html';
+document.getElementById('back-home-btn').onclick = () => navigateTo('/home.html');
+document.getElementById('open-stats-btn').onclick = () => {
+  document.body.classList.add('show-stats');
+  playSfx('slide', { direction: -1 });
 };
-document.getElementById('open-stats-btn').onclick = () => document.body.classList.add('show-stats');
-document.getElementById('close-stats-btn').onclick = () => document.body.classList.remove('show-stats');
+document.getElementById('close-stats-btn').onclick = () => {
+  document.body.classList.remove('show-stats');
+  playSfx('slide', { direction: 1 });
+};
 
 // Aggiorna dati e grafici quando la pagina torna visibile
 document.addEventListener('visibilitychange', () => {

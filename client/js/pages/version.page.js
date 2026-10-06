@@ -2,12 +2,11 @@
 import { initColorTheme } from '../ui/theme.js';
 import { startFogBackground } from '../ui/fog-background.js';
 import { CHANGELOG, CHANGE_TYPES, CURRENT_VERSION } from '../data/changelog.js';
+import { navigateTo } from '../ui/motion.js';
 
 initColorTheme();
 
-document.getElementById('home-btn').addEventListener('click', () => {
-    window.location.href = '/home.html';
-});
+document.getElementById('home-btn').addEventListener('click', () => navigateTo('/home.html'));
 
 function makeElement(tag, className, text) {
     const el = document.createElement(tag);
@@ -43,10 +42,23 @@ function renderChangelog() {
         }
         // Il contenitore esterno porta il "pad" sulla linea del tempo
         const wrapper = makeElement('div', index === 0 ? 'version-entry current' : 'version-entry');
+        wrapper.classList.add('scroll-reveal');
         wrapper.appendChild(card);
         return wrapper;
     }));
 }
 
 renderChangelog();
+
+// Le schede compaiono quando entrano nello schermo (una volta sola)
+const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry, i) => {
+        if (!entry.isIntersecting) return;
+        // Quelle visibili insieme (es. all'apertura) entrano a cascata
+        entry.target.style.transitionDelay = `${0.35 + i * 0.08}s`;
+        entry.target.classList.add('in-view');
+        revealObserver.unobserve(entry.target);
+    });
+}, { threshold: 0.12 });
+document.querySelectorAll('.scroll-reveal').forEach(el => revealObserver.observe(el));
 startFogBackground(document.getElementById('home-fog-canvas'));

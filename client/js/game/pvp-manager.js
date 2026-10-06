@@ -1,6 +1,6 @@
 // pvp-manager.js - Gestione delle partite PvP, integrata con engine.js
 import { VirtualMouseEntity, globalCollisionSystem } from "./collision-system.js";
-import { triggerCameraShake, updateRedOverlay } from './damage-effects.js';
+import { triggerCameraShake, updateRedOverlay, triggerScreenFlash } from './damage-effects.js';
 import { drawProjectilePolygonPattern, drawElementPattern } from "./element-patterns.js";
 import { applyElementalHit, applyParalysis, statusEffectManager, createElementalDebuffParticles } from './status-effects.js';
 import { audioManager } from './audio-manager.js';
@@ -10,6 +10,8 @@ import { drawBrushStroke } from './brush-stroke.js';
 import { computePlayerStats, applyElementDefense, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, SKILLS } from './player-stats.js';
 import { WS_URL } from '../services/config.js';
 import { loadPlayerFromDB, savePlayerData, getCurrentUsername } from '../services/player-db.js';
+import { navigateTo, fadeOutAndHide } from '../ui/motion.js';
+import { playSfx } from '../ui/sfx.js';
 
 const OPPONENT_COLOR = '#ff6666';
 const HIT_RADIUS = 30;
@@ -263,7 +265,7 @@ export class PvPManager {
             this.readyMessage.textContent = 'Ritorno all\'arena...';
             this.readyBtn.classList.add('hidden');
         }
-        setTimeout(() => { window.location.href = '/arena.html'; }, 2500);
+        setTimeout(() => navigateTo('/arena.html'), 2500);
     }
 
     // ------------------------------------------------------------
@@ -354,13 +356,14 @@ export class PvPManager {
                 if (this.countdownText) {
                     this.countdownText.textContent = 'DUEL!';
                     this.countdownText.style.display = 'block';
-                    this.countdownText.style.animation = 'pulse 0.5s 2';
+                    this.countdownText.classList.add('duel-slam');
                 }
+                triggerScreenFlash('#ffffff', 0.25, 450);
             } else {
                 audioManager.stopClockSound();
                 audioManager.playStartSound();
                 clearInterval(interval);
-                if (this.preMatchOverlay) this.preMatchOverlay.classList.add('hidden');
+                fadeOutAndHide(this.preMatchOverlay);
                 this.countdownCircle = null;
                 this.matchState = 'active';
                 console.log("🟢 Partita attiva!");
@@ -994,6 +997,12 @@ export class PvPManager {
     }
 
     showDamageEffect(isLocalPlayer) {
+        if (isLocalPlayer) {
+            triggerScreenFlash('#ff2a2a', 0.15, 250);
+            playSfx('hit', { throttle: 150 });
+        } else {
+            playSfx('hitConfirm', { throttle: 100 });
+        }
         const position = isLocalPlayer ? this.gameHooks.virtualMouse : this.opponent.virtualMouse;
         if (!position || !this.gameHooks.activeMagicParticles) return;
 
@@ -1034,6 +1043,7 @@ export class PvPManager {
             this.matchResultText.textContent = message;
             this.matchResultText.className = won === null ? '' : (won ? 'victory' : 'defeat');
             this.postMatchOverlay.classList.remove('hidden');
+            playSfx(won === null ? 'draw' : (won ? 'victory' : 'defeat'));
         } else {
             alert(message);
         }
@@ -1042,7 +1052,7 @@ export class PvPManager {
         await this.updatePlayerStats(won);
         this.cleanupMatch();
 
-        setTimeout(() => { window.location.href = '/arena.html'; }, 3000);
+        setTimeout(() => navigateTo('/arena.html'), 3000);
     }
 
     cleanupMatch() {

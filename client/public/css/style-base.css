@@ -54,7 +54,8 @@ body.day {
   --mana-bar-color: #00eaff;
 }
 
-body.night {
+body.night,
+html[data-theme="night"] body:not(.day) {
   --bg: #11141c;
   --surface: #181c2a;
   --surface-2: #23233a;

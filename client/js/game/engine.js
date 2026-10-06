@@ -10,7 +10,12 @@ import { drawParticleShape } from "./particle-shapes.js";
 import { drawBrushStroke } from "./brush-stroke.js";
 import { SpatialAreaRenderer } from "./spatial-shader.js";
 import { PvPManager } from "./pvp-manager.js";
-import { applyCameraShake, triggerCameraShake, updateRedOverlay, drawRedOverlay } from './damage-effects.js';
+import {
+  applyCameraShake, triggerCameraShake, updateRedOverlay, drawRedOverlay, triggerScreenFlash, drawScreenFlash
+} from './damage-effects.js';
+import { spawnRing, spawnCircleCollapse, spawnStrokeFade, drawFx, easeOutBack, easeOutCubic } from './fx.js';
+import { playSfx } from '../ui/sfx.js';
+import { showBanner, replayClass } from '../ui/motion.js';
 import {
   statusEffectManager, applyElementalHit, applyParalysis, updateStatusEffects, createElementalDebuffParticles
 } from "./status-effects.js";
@@ -83,6 +88,8 @@ const COUNTERS_SAVE_INTERVAL_MS = 1000;
 const MANA_SAVE_INTERVAL_MS = 15000;
 const FRAME_MS = 1000 / 60;
 const OPPONENT_SOUND_VOLUME = 0.75;     // le magie dell'avversario suonano un po' più piano
+const CIRCLE_APPEAR_MS = 450;           // il cerchio magico si "traccia" da solo quando compare
+const CIRCLE_FLASH_MS = 500;            // bagliore del cerchio quando riceve un elemento o una carica
 
 // ⚡ Fulmine: proiettili e laser rimbalzano sui bordi dell'arena e sulle aree di terra
 const FULMINE_MAX_BOUNCES = 4;
@@ -218,6 +225,8 @@ function registerPlayerStatusCallbacks() {
       const element = source === 'burning' ? 'fuoco' : null;
       playerLife = Math.max(0, playerLife - applyElementDefense(damage, playerStats, element));
       triggerCameraShake(5, 150);
+      triggerScreenFlash('#ff2a2a', 0.12, 220);
+      playSfx('hit', { throttle: 150, volume: 0.7 });
     });
     statusEffectManager.registerVisualCallback('player', (effectType, element) => {
       if (effectType === 'debuff_particles') {
@@ -452,17 +461,33 @@ function pickRecognizedSymbol(stroke) {
 function recognizeSpell(stroke) {
   if (stroke.length < 10) return null;
   const name = pickRecognizedSymbol(stroke);
-  if (!name) return null;
+  if (!name) {
+    fizzleStroke(stroke);
+    return null;
+  }
+  // Il tratto non sparisce di colpo: si accende del colore di ciò che ha evocato e sfuma
+  const symbolColor = isElement(name) ? getElementColor(name)
+    : name === 'cerchio' ? EMPTY_CIRCLE_COLOR
+    : magicCircle ? circleColorOf(magicCircle) : NEUTRAL_COLOR;
+  spawnStrokeFade(stroke, { color: withAlpha(symbolColor, 0.9), glow: symbolColor });
 
   // Dentro un cerchio magico i simboli caricano il cerchio invece di lanciare
   if (magicCircle) {
     if (name === "proiettile" || name === "spaziale" || name === "laser") {
       magicCircle.projections.push(name);
+      engraveCircle(circleColorOf(magicCircle));
+      playSfx('engrave', { pitch: 1 + 0.12 * Math.min(6, magicCircle.projections.length - 1) });
       return name;
     }
     if (isElement(name)) {
       magicCircle.elemento = name;
       incrementaAffinitaBuffer(name);
+      const color = getElementColor(name);
+      engraveCircle(color);
+      spawnRing(magicCircle.x, magicCircle.y, { color, from: magicCircle.radius * 0.3, to: magicCircle.radius + 80, duration: 600, width: 3 });
+      triggerScreenFlash(color, 0.08, 260);
+      audioManager.playElementSpellSound(name, 0.6);
+      playSfx('engrave', { pitch: 0.75 });
       return name;
     }
   }
@@ -484,6 +509,24 @@ function recognizeSpell(stroke) {
     }
   }
   return name;
+}
+
+// Simbolo non riconosciuto: il tratto trema e si spegne in uno sbuffo di fumo
+function fizzleStroke(stroke) {
+  spawnStrokeFade(stroke, { color: 'rgba(160, 166, 190, 0.75)', glow: 'rgba(255, 70, 70, 0.6)', duration: 450, jitter: 7 });
+  const end = stroke[stroke.length - 1];
+  for (let i = 0; i < 18; i++) {
+    activeMagicParticles.push({
+      x: end.x + (Math.random() - 0.5) * 16,
+      y: end.y + (Math.random() - 0.5) * 16,
+      radius: Math.random() * 3 + 2,
+      alpha: 0.35 + Math.random() * 0.2,
+      dx: (Math.random() - 0.5) * 1.2,
+      dy: -Math.random() * 1.2 - 0.3,
+      color: '#9aa0b8'
+    });
+  }
+  playSfx('fizzle');
 }
 
 // Elemento evocato a vuoto (o click su un cerchio con solo l'elemento): particelle e suono,
@@ -509,17 +552,39 @@ function receiveOpponentElement(data) {
 // ============================================================
 
 function createMagicCircle() {
+  if (magicCircle) spawnCircleCollapse(magicCircle, circleColorOf(magicCircle), circleRotation);
   magicCircle = {
     x: virtualMouse.x,
     y: virtualMouse.y,
     radius: CIRCLE_RADIUS,
     thickness: 3,
     elemento: null,
-    projections: []
+    projections: [],
+    bornAt: performance.now(), // animazione di comparsa (solo locale, non viene inviata all'avversario)
+    flashAt: 0
   };
+  // Un'onda che si allarga e una che si stringe e "fissa" il cerchio
+  spawnRing(magicCircle.x, magicCircle.y, { color: EMPTY_CIRCLE_COLOR, from: 20, to: CIRCLE_RADIUS + 70, duration: 650, width: 2 });
+  spawnRing(magicCircle.x, magicCircle.y, { color: EMPTY_CIRCLE_COLOR, from: CIRCLE_RADIUS + 110, to: CIRCLE_RADIUS + 20, duration: 520, width: 1.5, delay: 90 });
+  playSfx('circleSummon');
 }
 
-function removeMagicCircle() {
+function circleColorOf(circle) {
+  return circle.elemento ? getElementColor(circle.elemento) : EMPTY_CIRCLE_COLOR;
+}
+
+// Bagliore del cerchio quando riceve un elemento o una carica
+function engraveCircle(color) {
+  magicCircle.flashAt = performance.now();
+  spawnRing(magicCircle.x, magicCircle.y, { color, from: magicCircle.radius * 1.15, to: magicCircle.radius * 1.5, duration: 380, width: 2 });
+}
+
+// sound: 'circleFade' quando le cariche finiscono, 'dispel' quando lo si annulla
+function removeMagicCircle(sound = 'circleFade') {
+  if (magicCircle) {
+    spawnCircleCollapse(magicCircle, circleColorOf(magicCircle), circleRotation);
+    playSfx(sound);
+  }
   magicCircle = null;
   if (pvpManager && pvpManager.isActive()) {
     pvpManager.sendMagicCircleUpdate(null);
@@ -568,6 +633,7 @@ function cancelAtVirtualMouse() {
 
   for (let i = lasers.length - 1; i >= 0; i--) {
     if (distanceToPath(mouse, lasers[i].path) <= LASER_CANCEL_RADIUS) {
+      dispelFx(mouse, laserColor(lasers[i], false));
       removeLaserById(lasers[i].id);
       return;
     }
@@ -575,6 +641,7 @@ function cancelAtVirtualMouse() {
 
   for (let i = permanentSpazialeAreas.length - 1; i >= 0; i--) {
     if (pointInPolygon(mouse, permanentSpazialeAreas[i].points)) {
+      dispelFx(mouse, permanentSpazialeAreas[i].color);
       removeSpazialeAreaAt(i);
       return;
     }
@@ -584,12 +651,21 @@ function cancelAtVirtualMouse() {
     // La cancellazione manuale del cerchio rimuove anche le magie permanenti
     removeAllSpazialeAreas();
     removeAllLasers();
-    removeMagicCircle();
+    removeMagicCircle('dispel');
     return;
   }
 
   const simpleLaser = lasers.findLast(l => l.simple);
-  if (simpleLaser) removeLaserById(simpleLaser.id);
+  if (simpleLaser) {
+    dispelFx(simpleLaser.origin, laserColor(simpleLaser, false));
+    removeLaserById(simpleLaser.id);
+  }
+}
+
+// Magia annullata: un'onda che si richiude sul punto
+function dispelFx(point, color) {
+  spawnRing(point.x, point.y, { color: color || NEUTRAL_COLOR, from: 70, to: 4, duration: 320, width: 2 });
+  playSfx('dispel');
 }
 
 function drawMagicCircle() {
@@ -597,21 +673,31 @@ function drawMagicCircle() {
   const { x, y, radius, thickness, elemento } = magicCircle;
   const circleColor = elemento ? getElementColor(elemento) : EMPTY_CIRCLE_COLOR;
 
+  // Comparsa: il cerchio si allarga con un piccolo rimbalzo mentre i tratti si disegnano in senso orario
+  const now = performance.now();
+  const appear = magicCircle.bornAt ? Math.min(1, (now - magicCircle.bornAt) / CIRCLE_APPEAR_MS) : 1;
+  const sweep = easeOutCubic(appear);
+  const scale = 0.7 + 0.3 * easeOutBack(appear);
+  // Bagliore quando riceve un elemento o una carica (1 -> 0)
+  const flash = magicCircle.flashAt ? Math.max(0, 1 - (now - magicCircle.flashAt) / CIRCLE_FLASH_MS) : 0;
+
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(circleRotation);
+  ctx.scale(scale, scale);
   ctx.translate(-x, -y);
+  ctx.globalAlpha = sweep;
 
   // Glow radiale
   if (elemento) {
-    const glowRadius = radius + 24;
+    const glowRadius = radius + 24 + flash * 36;
     const grad = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
     grad.addColorStop(0, circleColor + 'cc');
     grad.addColorStop(0.45, circleColor + '44');
     grad.addColorStop(0.85, circleColor + '11');
     grad.addColorStop(1, circleColor + '00');
     ctx.save();
-    ctx.globalAlpha = 0.45;
+    ctx.globalAlpha = (0.45 + flash * 0.45) * sweep;
     ctx.beginPath();
     ctx.arc(x, y, glowRadius, 0, 2 * Math.PI);
     ctx.fillStyle = grad;
@@ -628,19 +714,21 @@ function drawMagicCircle() {
   }
 
   // Cerchi principali
-  ctx.lineWidth = thickness;
+  const arcStart = -Math.PI / 2;
+  const arcEnd = arcStart + 2 * Math.PI * sweep;
+  ctx.lineWidth = thickness + flash * 3;
   ctx.strokeStyle = circleColor;
   ctx.beginPath();
-  ctx.arc(x, y, radius, 0, 2 * Math.PI);
+  ctx.arc(x, y, radius, arcStart, arcEnd);
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(x, y, radius + 20, 0, 2 * Math.PI);
+  ctx.arc(x, y, radius + 20, arcStart, arcEnd);
   ctx.stroke();
 
-  // Segmenti radiali
+  // Segmenti radiali (compaiono insieme all'arco)
   ctx.lineWidth = 1;
   const numSegments = 24;
-  for (let i = 0; i < numSegments; i++) {
+  for (let i = 0; i < numSegments * sweep; i++) {
     const angle = (2 * Math.PI / numSegments) * i;
     ctx.beginPath();
     ctx.moveTo(x + Math.cos(angle) * (radius + 20), y + Math.sin(angle) * (radius + 20));
@@ -759,6 +847,7 @@ function getProjectileLife(start, vx, vy, element) {
 // così a parità di velocità hanno anche lo stesso aspetto
 function createProjectile({ start, vx, vy, life, color, tipo, element, owner }) {
   spawnLaunchParticles(start, vx, vy, color, element);
+  spawnRing(start.x, start.y, { color, from: 6, to: 48, duration: 280, width: 2 });
   projectiles.push({
     x: start.x,
     y: start.y,
@@ -956,6 +1045,7 @@ function registerLocalLaser({ id, origin, dir, element = null, variant = null, e
 
 function spawnLaserCastParticles(laser, color) {
   const angle = Math.atan2(laser.dir.y, laser.dir.x);
+  spawnRing(laser.origin.x, laser.origin.y, { color, from: 8, to: 70, duration: 380, width: 3 });
   for (let i = 0; i < 50; i++) {
     activeMagicParticles.push({
       x: laser.origin.x + (Math.random() - 0.5) * 20,
@@ -2121,9 +2211,16 @@ function spendMana(amount) {
 
 // Burnout: niente magie per 5 secondi e le magie attive si annullano
 function triggerBurnout() {
+  const alreadyInBurnout = getManaValues().inBurnout;
   setManaValues({ burnout: true, burnoutT: BURNOUT_FRAMES, current: 0 });
   removeAllSpazialeAreas();
   removeAllLasers();
+  if (alreadyInBurnout) return;
+  // Sovraccarico: lampo rosso, scossone, onda che esplode dal giocatore
+  triggerScreenFlash('#ff2020', 0.35, 600);
+  triggerCameraShake(12, 450);
+  spawnRing(playerBody.x, playerBody.y, { color: '#ff3030', from: 10, to: 220, duration: 700, width: 4 });
+  playSfx('burnout');
 }
 
 function regenMana() {
@@ -2133,6 +2230,10 @@ function regenMana() {
     if (burnoutTimer <= 0) {
       inBurnout = false;
       mana = manaMax * 0.2;
+      // Si può di nuovo lanciare: il mana torna con un'onda azzurra che si raccoglie sul giocatore
+      triggerScreenFlash('#00eaff', 0.1, 400);
+      spawnRing(playerBody.x, playerBody.y, { color: '#00eaff', from: 160, to: 14, duration: 520, width: 2 });
+      playSfx('manaRestored');
     }
   } else if (mana < manaMax) {
     // Magie rigogliose in campo: rigenerazione aumentata per entrambi i caster
@@ -2158,9 +2259,16 @@ function flushExperience() {
   expToAdd = 0;
 
   // Salire di livello non cambia le statistiche: dà un punto abilità da spendere nelle info giocatore
+  const previousLevel = playerLevel;
   while (playerExp >= getExpToNext(playerLevel)) {
     playerExp -= getExpToNext(playerLevel);
     playerLevel++;
+  }
+  if (playerLevel > previousLevel) {
+    const points = playerLevel - previousLevel;
+    showBanner(`Livello ${playerLevel}`, points > 1 ? `+${points} punti abilità` : '+1 punto abilità');
+    playSfx('levelUp');
+    spawnRing(playerBody.x, playerBody.y, { color: '#55ff71', from: 10, to: 180, duration: 800, width: 3 });
   }
 
   savePlayerData(username, {
@@ -2226,6 +2334,9 @@ function drawExpBar() {
     barContainer.classList.remove('exp-visible');
     lvl.classList.remove('exp-visible');
   }, 1000);
+  // Il numero del livello "salta" quando cambia (non al primo caricamento)
+  if (lvl.dataset.shown && lvl.dataset.shown !== String(playerLevel)) replayClass(lvl, 'bump');
+  lvl.dataset.shown = playerLevel;
 
   if (perc > prevPerc) {
     glow.classList.remove('animate');
@@ -2586,6 +2697,7 @@ function animate() {
   drawParticles();
   drawFireParticles();
   drawMagicParticles();
+  drawFx(ctx);
 
   if (pvpManager && pvpManager.isActive()) {
     pvpManager.syncWithMainGame({
@@ -2630,6 +2742,7 @@ function animate() {
   }
   updateRedOverlay(health, maxHealth);
   drawRedOverlay(ctx, canvas);
+  drawScreenFlash(ctx, canvas);
 
   circleRotation += 0.003 * frameScale;
   drawManaSegments();

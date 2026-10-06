@@ -235,6 +235,9 @@
       #player-info-card { padding: 22px 18px; }
     }
   </style>
+  <link rel="stylesheet" href="/css/style-motion.css">
+  <!-- Tema già al primo disegno: niente lampo chiaro di notte, e il velo di transizione ha il colore giusto -->
+  <script>document.documentElement.dataset.theme = localStorage.getItem('colorMode') === 'night' ? 'night' : 'day';</script>
 </head>
 <body>
   <button id="open-stats-btn" class="slide-btn">Statistiche</button>

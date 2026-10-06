@@ -1,6 +1,7 @@
 // game.page.js - game.html?mode=training (manichino) oppure game.html?mode=pvp (duello)
 import { initColorTheme } from '../ui/theme.js';
 import { setupTrainingDummy } from '../game/training.js';
+import { navigateTo } from '../ui/motion.js';
 
 initColorTheme();
 
@@ -11,7 +12,7 @@ if (mode === 'training') {
   homeBtn.id = 'home-btn';
   homeBtn.className = 'btn-permanent';
   homeBtn.textContent = 'Home';
-  homeBtn.onclick = () => { window.location.href = '/home.html'; };
+  homeBtn.onclick = () => navigateTo('/home.html');
   document.body.insertBefore(homeBtn, document.body.firstChild);
 
   setupTrainingDummy(document.getElementById('spellCanvas'));
