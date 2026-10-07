@@ -313,7 +313,7 @@ Leggendario 2%; garanzia (condivisa tra i pacchetti): almeno un Epico ogni 10 pu
 - Sub stat: tante quante le stelle, al massimo 4 (Comune 1 · Non comune 2 · Raro 3 · Epico e Leggendario 4), scelte tra
   HP, HP%, ATK, ATK%, Mana, Mana%, Rigenerazione mana%, Tasso CRIT, DMG CRIT; mai ripetute e mai uguali alla main stat.
 - I valori sono fissi e non dipendono dalla rarità, tranne la main stat dei Leggendari (×1.15).
-- **Livelli** (fino a +20): ogni livello aumenta la main stat; ogni 4 livelli una sub stat a caso riceve un potenziamento
+- **Livelli** (fino a +32): ogni livello aumenta la main stat; ogni 4 livelli una sub stat a caso riceve un potenziamento
   (il numero di potenziamenti è mostrato accanto alle sub stat migliorate). Il livello sale spendendo Catalizzante
   (pulsante ⬆, schermata con la barra dell'esperienza); il cestino 🗑 catalizza il Linker (resa in base alla rarità più
   l'80% del Catalizzante investito).
@@ -325,13 +325,17 @@ Leggendario 2%; garanzia (condivisa tra i pacchetti): almeno un Epico ogni 10 pu
 
 - **5 slot**, uno per tipo di Linker: **Core**, **Matrix**, **Relay**, **Conduit**, **Apex**. Stanno dove i cerchi di gioco
   hanno le cariche, collegati da un pentagono; ogni slot è il cerchio magico del suo Linker (grafica in
-  `client/public/img/<Nome>.svg`), nel colore del cerchio, con la parte superiore rivolta verso l'esterno, e un po' spento
-  finché lo slot è vuoto.
+  `client/public/img/<Nome>.svg`), nel colore del set del Linker equipaggiato, con la parte superiore rivolta verso
+  l'esterno. Uno slot vuoto non ha cerchio: resta solo il vertice del pentagono (sotto il mouse un anello tratteggiato).
+- Lo slot selezionato ha lo stesso indicatore della carica selezionata in gioco (mirino e/o particelle, secondo
+  l'impostazione "indicatore della carica"; con "nessuno" resta il mirino), non più un bagliore.
 - **Selezione e inventario** (come gli artefatti di Genshin Impact): cliccando uno slot sul cerchio o nella lista, la lista
-  si restringe, le voci scendono a "trenino" e si mettono in fila sotto il cerchio (che si sposta a sinistra) e a destra
-  compare l'inventario di quello slot: griglia dei Linker posseduti (ordinabile per rarità o livello) e dettaglio di quello
+  si restringe, le voci scendono a "trenino" e si mettono in fila sotto il cerchio (che si sposta a sinistra e fa uno
+  zoom sullo slot con animejs, con il bordo che sfuma) e a destra compare l'inventario di quello slot: griglia dei Linker posseduti (ordinabile per rarità o livello) e dettaglio di quello
   scelto (statistiche, Equipaggia/Sostituisci/Rimuovi). Le voci sotto il cerchio fanno da schede per cambiare slot;
-  ✕ o Esc chiudono con l'animazione al contrario.
+  ✕ o Esc chiudono con l'animazione al contrario. Quando il contenuto cambia (slot, Linker scelto, potenziamento) i testi
+  nuovi si scrivono con lo `scrambleText` di animejs (rune a caso che si fermano sulle lettere giuste).
+- L'intera sezione si adatta alla finestra: il cerchio prende l'altezza disponibile e l'inventario scorre al suo interno.
 - Il cerchio ruota come tutti i cerchi magici e ha un **colore scelto dal giocatore** (salvato sul profilo).
 - Al centro c'è il **nome del giocatore in rune** su un anello racchiuso tra due cerchi (fascia alta il doppio del font).
   Il giocatore sceglie l'alfabeto: **Elder Futhark**, **Younger Futhark**, **Short-twig Futhark**, **Staveless (Hälsinge)

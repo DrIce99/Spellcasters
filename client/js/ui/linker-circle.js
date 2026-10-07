@@ -2,6 +2,9 @@
 // È un cerchio magico come quelli di gioco: anelli e segmenti radiali, i 5 slot dei Linker al posto
 // delle cariche (ognuno con la sua grafica, vedi linker-art.js) e, al centro, il nome del giocatore
 // in rune su un anello racchiuso tra due cerchi.
+// Lo slot selezionato ha lo stesso indicatore della carica selezionata in gioco (mirino e/o particelle, dalle
+// impostazioni) e, quando si apre il suo inventario, il cerchio fa uno zoom su di lui (animejs).
+import { animate } from 'animejs';
 import { LINKER_SLOTS } from '../game/linker.js';
 import { toRunes, RUNE_CROSS } from './runes.js';
 import { loadLinkerArt, getLinkerArt, ART_RING_RADIUS, ART_HALF_SIZE } from './linker-art.js';
@@ -12,16 +15,35 @@ const SLOT_ORBIT = RADIUS * 1.2 * 0.92;   // dove stanno le cariche
 const SLOT_OUTER = RADIUS * 1.2 * 0.95 * 0.3;
 // La grafica del Linker è scalata in modo che il suo anello esterno coincida con quello dello slot
 const ART_SIZE = (SLOT_OUTER * ART_HALF_SIZE / ART_RING_RADIUS) * 2;
-const EMPTY_SLOT_ALPHA = 0.75;             // slot senza Linker: grafica un po' spenta
-const SELECTED_SLOT_SCALE = 1.12;          // lo slot selezionato si ingrandisce un po'
+
+// Zoom sullo slot aperto: il cerchio si ingrandisce attorno allo slot e il bordo del canvas sfuma,
+// così il disegno ingrandito non finisce tagliato di netto contro il resto della pagina
+const ZOOM = 2;
+const ZOOM_MS = 900;
+const ZOOM_FADE = 0.3;                     // parte del raggio del canvas che sfuma a zoom pieno
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+// Indicatore dello slot selezionato: lo stesso scelto nelle impostazioni per la carica selezionata in gioco
+// ('none' in gioco nasconde l'indicatore, ma qui la selezione deve vedersi: resta il mirino)
+const chargeIndicator = localStorage.getItem('chargeIndicator') || 'both';
+const SHOW_PARTICLES = chargeIndicator === 'particles' || chargeIndicator === 'both';
+const SHOW_RETICLE = chargeIndicator !== 'particles';
+const MARKER_GAP = 7;                      // distanza del mirino dall'anello più esterno dello slot
 
 // Angolo (nel sistema del cerchio, prima della rotazione) dello slot i-esimo: il primo in alto, poi in senso orario
 function slotAngle(index) {
   return -Math.PI / 2 + (Math.PI * 2 / LINKER_SLOTS.length) * index;
 }
+
+// Differenza tra due angoli per la via più breve (tra -π e π)
+function angleDiff(from, to) {
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from));
+}
 const RARITY_RING_GAP = 3.2;                // anelli della rarità attorno agli slot equipaggiati: uno per stella
 const RARITY_RINGS_MAX = 5;
-const EXTENT = SLOT_ORBIT + (SLOT_OUTER + RARITY_RING_GAP * (RARITY_RINGS_MAX + 1)) * 1.12; // metà del lato disegnato
+const ringRadius = (i) => SLOT_OUTER + RARITY_RING_GAP * (i + 1);
+// Metà del lato disegnato: ci sta anche il mirino (che pulsa del 6%) attorno allo slot con più anelli
+const EXTENT = SLOT_ORBIT + (ringRadius(RARITY_RINGS_MAX - 1) + MARKER_GAP) * 1.06 + 6;
 const ROTATION_SPEED = 0.003;              // per frame a 60fps, come circleRotation in engine.js
 
 // Anello del nome: le rune sono distribuite in modo uniforme su tutto l'anello (anche tra l'ultima e la prima
@@ -61,6 +83,12 @@ export class LinkerCircle {
     this.equipped = equipped;
     this.highlight = null; // slot sotto il mouse (sul cerchio o sulla sua riga nella lista)
     this.selected = null;  // slot aperto nell'inventario
+    this.markerAngle = null; // angolo del mirino: scorre verso lo slot selezionato
+    this.particles = [];
+    // Zoom (animato da zoomTo): fattore, distanza dal centro e angolo del punto inquadrato (nel sistema degli slot)
+    this.view = { zoom: 1, focusR: 0, focusAngle: 0 };
+    this.zoomAnimation = null;
+    this.frameScale = 0;   // frame trascorsi dall'ultimo disegno (0 quando il cerchio è fermo)
     this.rotation = 0;
     this.running = false;
     this.lastTime = 0;
@@ -94,17 +122,58 @@ export class LinkerCircle {
   }
 
   setSelected(slotKey) {
+    if (slotKey && !this.selected) this.markerAngle = null; // nuova selezione: il mirino compare già sullo slot
     this.selected = slotKey;
     if (!this.running) this.draw();
+  }
+
+  /** Zoom sullo slot indicato (null = di nuovo tutto il cerchio). Se c'è già uno zoom, scorre fino al nuovo slot */
+  zoomTo(slotKey) {
+    const { view } = this;
+    const index = LINKER_SLOTS.findIndex(s => s.key === slotKey);
+    const target = index === -1
+      ? { zoom: 1, focusR: 0, focusAngle: view.focusAngle }
+      : { zoom: ZOOM, focusR: SLOT_ORBIT, focusAngle: view.focusAngle + angleDiff(view.focusAngle, slotAngle(index)) };
+    // Partendo da tutto il cerchio il punto inquadrato è il centro: l'angolo si può fissare subito
+    if (index !== -1 && view.focusR < 0.5) view.focusAngle = target.focusAngle = slotAngle(index);
+    this.zoomAnimation?.pause();
+    this.zoomAnimation = null;
+    if (reducedMotion.matches) {
+      Object.assign(view, target);
+      if (!this.running) this.draw();
+      return;
+    }
+    this.zoomAnimation = animate(view, {
+      ...target,
+      duration: ZOOM_MS,
+      ease: 'inOutQuart',
+      onUpdate: () => { if (!this.running) this.draw(); }
+    });
+  }
+
+  /** Torna subito a tutto il cerchio, senza animazione */
+  resetZoom() {
+    this.zoomAnimation?.pause();
+    this.zoomAnimation = null;
+    Object.assign(this.view, { zoom: 1, focusR: 0 });
+    if (!this.running) this.draw();
+  }
+
+  // Punto inquadrato, nel sistema del cerchio dopo la rotazione (gli slot girano di -rotation)
+  focusPoint() {
+    const { focusR, focusAngle } = this.view;
+    const angle = focusAngle - this.rotation;
+    return { x: Math.cos(angle) * focusR, y: Math.sin(angle) * focusR };
   }
 
   /** Slot sotto il punto dello schermo indicato (coordinate del puntatore), oppure null */
   slotAt(clientX, clientY) {
     const rect = this.canvas.getBoundingClientRect();
     if (!rect.width) return null;
-    const scale = rect.width / (EXTENT * 2);
-    const x = (clientX - rect.left - rect.width / 2) / scale;
-    const y = (clientY - rect.top - rect.height / 2) / scale;
+    const scale = rect.width / (EXTENT * 2) * this.view.zoom;
+    const focus = this.focusPoint();
+    const x = (clientX - rect.left - rect.width / 2) / scale + focus.x;
+    const y = (clientY - rect.top - rect.height / 2) / scale + focus.y;
     // Gli slot girano al contrario del cerchio: in tutto ruotano di -rotation (vedi draw)
     const index = LINKER_SLOTS.findIndex((_, i) => {
       const angle = slotAngle(i) - this.rotation;
@@ -129,7 +198,9 @@ export class LinkerCircle {
     const frameScale = Math.min(now - this.lastTime, 50) / (1000 / 60);
     this.lastTime = now;
     this.rotation += ROTATION_SPEED * frameScale;
+    this.frameScale = frameScale;
     this.draw();
+    this.frameScale = 0;
     requestAnimationFrame(this.frame);
   }
 
@@ -145,8 +216,9 @@ export class LinkerCircle {
     const { ctx, canvas } = this;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const scale = canvas.width / (EXTENT * 2);
-    ctx.setTransform(scale, 0, 0, scale, canvas.width / 2, canvas.height / 2);
+    const scale = canvas.width / (EXTENT * 2) * this.view.zoom;
+    const focus = this.focusPoint();
+    ctx.setTransform(scale, 0, 0, scale, canvas.width / 2 - focus.x * scale, canvas.height / 2 - focus.y * scale);
 
     this.drawGlow();
     ctx.save();
@@ -156,6 +228,102 @@ export class LinkerCircle {
     // Come le cariche nei cerchi di gioco: girano al contrario rispetto al cerchio
     ctx.rotate(-2 * this.rotation);
     this.drawSlots();
+    if (SHOW_RETICLE) this.drawSelectedMarker();
+    ctx.restore();
+    if (SHOW_PARTICLES) this.drawParticles();
+    this.drawEdgeFade();
+  }
+
+  // Durante lo zoom il bordo del canvas sfuma in un cerchio: il disegno ingrandito non ha bordi netti
+  drawEdgeFade() {
+    const amount = ZOOM_FADE * Math.min(1, Math.max(0, (this.view.zoom - 1) / (ZOOM - 1)));
+    if (amount <= 0.001) return;
+    const { ctx, canvas } = this;
+    const half = canvas.width / 2;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const grad = ctx.createRadialGradient(half, half, half * (1 - amount), half, half, half);
+    grad.addColorStop(0, '#000');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Colore e misure di uno slot: quelli del set del Linker equipaggiato, altrimenti del cerchio
+  slotStyle(key) {
+    const linker = this.equipped[key] || null;
+    const rings = linker ? Math.min(RARITY_RINGS_MAX, linker.rarity || 0) : 0;
+    return { linker, rings, color: linker?.color || this.color, outer: rings ? ringRadius(rings - 1) : SLOT_OUTER };
+  }
+
+  // Mirino attorno allo slot selezionato, come quello della carica selezionata in gioco: quattro archi spezzati
+  // che pulsano e girano, e che quando la selezione cambia scorrono lungo il cerchio per la via più breve
+  drawSelectedMarker() {
+    const index = LINKER_SLOTS.findIndex(s => s.key === this.selected);
+    if (index === -1) return;
+    const target = slotAngle(index);
+    if (this.markerAngle === null) this.markerAngle = target;
+    // Fermo (cerchio non animato) il mirino non avrebbe frame per scorrere: va subito sullo slot
+    this.markerAngle = this.running
+      ? this.markerAngle + angleDiff(this.markerAngle, target) * Math.min(1, 0.22 * this.frameScale)
+      : target;
+
+    const { ctx } = this;
+    const { color, outer } = this.slotStyle(this.selected);
+    const radius = (outer + MARKER_GAP) * (1 + Math.sin(performance.now() / 180) * 0.06);
+    ctx.save();
+    ctx.translate(Math.cos(this.markerAngle) * SLOT_ORBIT, Math.sin(this.markerAngle) * SLOT_ORBIT);
+    ctx.rotate(-2 * this.rotation); // in tutto -3 × rotazione, come in gioco
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    for (let k = 0; k < 4; k++) {
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, k * Math.PI / 2 + 0.3, (k + 1) * Math.PI / 2 - 0.3);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Particelle che si alzano dallo slot selezionato, come quelle della carica selezionata in gioco.
+  // Vivono nel sistema del cerchio già ruotato: restano indietro mentre lo slot gira
+  drawParticles() {
+    const { ctx, particles, frameScale } = this;
+    const index = LINKER_SLOTS.findIndex(s => s.key === this.selected);
+    if (index !== -1 && frameScale) {
+      const angle = slotAngle(index) - this.rotation;
+      const { color, outer } = this.slotStyle(this.selected);
+      const count = Math.round(6 * frameScale);
+      for (let i = 0; i < count; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(Math.random()) * outer;
+        particles.push({
+          x: Math.cos(angle) * SLOT_ORBIT + Math.cos(a) * r,
+          y: Math.sin(angle) * SLOT_ORBIT + Math.sin(a) * r,
+          radius: Math.random() * 2.5 + 1,
+          alpha: 0.18 + Math.random() * 0.18,
+          dx: (Math.random() - 0.5) * 0.6,
+          dy: (Math.random() - 0.5) * 0.6,
+          color
+        });
+      }
+    }
+    ctx.save();
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      ctx.globalAlpha = Math.max(0, p.alpha);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.fill();
+      p.x += p.dx * frameScale;
+      p.y += p.dy * frameScale;
+      p.alpha -= 0.01 * frameScale;
+      p.radius *= 0.99 ** frameScale;
+      if (p.alpha <= 0.01 || p.radius <= 0.2) particles.splice(i, 1);
+    }
     ctx.restore();
   }
 
@@ -241,39 +409,47 @@ export class LinkerCircle {
 
   drawSlot(key, { x, y, angle }) {
     const { ctx } = this;
-    const selected = this.selected === key;
-    const active = selected || this.highlight === key;
-    const linker = this.equipped[key] || null;
-    const equipped = !!linker;
-    // Slot con un Linker: tutto nel colore del suo set
-    const color = linker?.color || this.color;
-    const rings = equipped ? Math.min(RARITY_RINGS_MAX, linker.rarity || 0) : 0;
-    const ringRadius = (i) => SLOT_OUTER + RARITY_RING_GAP * (i + 1);
+    const hovered = this.highlight === key;
+    const { linker, rings, color, outer } = this.slotStyle(key);
     ctx.save();
     ctx.translate(x, y);
     // La parte superiore della grafica guarda verso l'esterno del cerchio
     ctx.rotate(angle + Math.PI / 2);
-    if (selected) ctx.scale(SELECTED_SLOT_SCALE, SELECTED_SLOT_SCALE);
+
+    // Slot vuoto: il suo cerchio magico non c'è. Resta solo il vertice del pentagono e, sotto il mouse,
+    // un anello tratteggiato per far capire che lo slot si può aprire
+    if (!linker) {
+      if (hovered) {
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath();
+        ctx.arc(0, 0, SLOT_OUTER, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+
     // Lo slot copre il pentagono e gli anelli del cerchio che passano sotto di lui
     ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath();
-    ctx.arc(0, 0, (rings ? ringRadius(rings - 1) : SLOT_OUTER) + 1.5, 0, Math.PI * 2);
+    ctx.arc(0, 0, outer + 1.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalCompositeOperation = 'source-over';
 
-    if (active || equipped) {
-      ctx.shadowColor = color;
-      ctx.shadowBlur = selected ? 26 : active ? 18 : 10;
-      ctx.fillStyle = color + (selected ? '40' : active ? '30' : '1a');
-      ctx.beginPath();
-      ctx.arc(0, 0, SLOT_OUTER, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
+    // Leggero alone (più forte sotto il mouse); la selezione si vede dal mirino, non da un bagliore
+    ctx.shadowColor = color;
+    ctx.shadowBlur = hovered ? 18 : 10;
+    ctx.fillStyle = color + (hovered ? '30' : '1a');
+    ctx.beginPath();
+    ctx.arc(0, 0, SLOT_OUTER, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
 
     const art = getLinkerArt(key, color);
     if (art) {
-      ctx.globalAlpha = active || equipped ? 1 : EMPTY_SLOT_ALPHA;
       ctx.drawImage(art, -ART_SIZE / 2, -ART_SIZE / 2, ART_SIZE, ART_SIZE);
     } else {
       // Grafica non ancora caricata: solo l'anello dello slot

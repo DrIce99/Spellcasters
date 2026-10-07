@@ -111,7 +111,7 @@ export const LINKER_SETS = {
 };
 
 // --- Livelli ---
-export const LINKER_MAX_LEVEL = 20;
+export const LINKER_MAX_LEVEL = 32;
 export const SUB_UPGRADE_EVERY = 4;                 // ogni 4 livelli si potenzia una sub stat a caso
 export const CATALYST_REFUND = 0.8;                 // catalizzando si recupera l'80% dell'esperienza investita
 

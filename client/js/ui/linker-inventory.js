@@ -1,6 +1,8 @@
 // linker-inventory.js - Inventario dei Linker di uno slot (pannello a destra del cerchio, come in Genshin Impact):
 // griglia dei Linker posseduti, dettaglio di quello scelto (set, main stat, sub stat, bonus del set) con
 // Equipaggia/Sostituisci/Rimuovi, Potenzia (schermata del livello) e Catalizza (cestino).
+// Quando il contenuto cambia (altro slot, altro Linker, potenziamento...) i testi nuovi si scrivono (scramble.js).
+import { snapshotTexts, scrambleChanged } from './scramble.js';
 import {
   LINKER_SLOTS, LINKER_SETS, LINKER_STATS, RARITIES, CURRENCIES, LINKER_MAX_LEVEL, SUB_UPGRADE_EVERY,
   mainStatValue, subStatValue, formatStatValue, expToNextLevel, catalystToLevel, catalystYield
@@ -49,6 +51,7 @@ export class LinkerInventoryView {
    */
   constructor(inventory, { getSlotData, onEquip, onLevelUp, onCatalyze }) {
     Object.assign(this, { getSlotData, onEquip, onLevelUp, onCatalyze });
+    this.root = inventory;
     this.slot = null;
     this.pickedId = null;
     this.sort = 'rarita';
@@ -80,6 +83,8 @@ export class LinkerInventoryView {
 
   render() {
     if (!this.slot) return;
+    // Pannello già visibile: si animano solo i testi che cambiano (alla comparsa li anima tutti reveal())
+    const before = this.root.classList.contains('visible') ? snapshotTexts(this.root) : null;
     const data = this.getSlotData(this.slot);
     const sorted = [...data.items].sort(SORTS[this.sort]);
     // Come in Genshin: si parte da quello equipaggiato, altrimenti dal primo della lista
@@ -96,6 +101,12 @@ export class LinkerInventoryView {
     if (!picked) this.renderEmpty();
     else if (this.mode === 'level' && data.canEdit) this.renderLevelUp(picked, data);
     else this.renderDetail(picked, data);
+    if (before) scrambleChanged(this.root, before);
+  }
+
+  /** Scrive con l'animazione tutti i testi dell'inventario (quando compare) */
+  reveal() {
+    scrambleChanged(this.root);
   }
 
   // --- Griglia ---
@@ -103,6 +114,7 @@ export class LinkerInventoryView {
   card(linker, picked, isEquipped) {
     const set = setOf(linker);
     const li = el('li', 'linker-card');
+    li.dataset.key = linker.id; // per scramble.js: la carta resta la stessa anche se cambia posizione
     li.style.setProperty('--rarity', RARITIES[linker.rarita]?.color || 'var(--line-strong)');
     li.style.setProperty('--set', set.color);
     li.classList.toggle('picked', picked);

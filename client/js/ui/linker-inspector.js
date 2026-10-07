@@ -2,7 +2,7 @@
 // Selezionando uno slot (sul cerchio o nella lista) parte la transizione:
 //   1. la lista degli slot a destra si restringe orizzontalmente;
 //   2. le voci, una dopo l'altra (a "trenino"), scendono e poi si mettono in fila sotto il cerchio,
-//      che intanto si sposta a sinistra;
+//      che intanto si sposta a sinistra e fa uno zoom sullo slot (animejs, vedi LinkerCircle.zoomTo);
 //   3. a destra compare l'inventario dei Linker di quello slot, con il dettaglio di quello scelto.
 // Le voci sotto il cerchio fanno da schede: si cambia slot senza chiudere. ✕ o Esc chiudono (animazione al contrario).
 import { LinkerInventoryView } from './linker-inventory.js';
@@ -96,7 +96,10 @@ export class LinkerInspector {
   async open(slotKey) {
     if (this.state === 'opening' || this.state === 'closing') return;
     this.select(slotKey);
-    if (this.state === 'open') return;
+    if (this.state === 'open') {
+      this.circle.zoomTo(slotKey); // lo zoom scorre fino al nuovo slot
+      return;
+    }
 
     this.state = 'opening';
     // 1. La lista si restringe sul posto
@@ -108,6 +111,7 @@ export class LinkerInspector {
     const circleFirst = this.canvas.getBoundingClientRect();
     this.inventory.hidden = false;
     this.layout.classList.add('inspecting');
+    this.circle.zoomTo(slotKey);
     await Promise.all([
       this.slideCircle(circleFirst),
       ...rows.map((row, i) => this.train(row, first[i], i, 'down-then-across'))
@@ -115,6 +119,7 @@ export class LinkerInspector {
 
     // 3. A destra compare l'inventario
     this.inventory.classList.add('visible');
+    this.view.reveal(); // i testi dell'inventario si scrivono mentre compare
     await wait(INVENTORY_MS);
     this.state = 'open';
   }
@@ -122,6 +127,7 @@ export class LinkerInspector {
   async close() {
     if (this.state !== 'open') return;
     this.state = 'closing';
+    this.circle.zoomTo(null);
     this.inventory.classList.remove('visible');
     await wait(INVENTORY_MS);
 
@@ -160,6 +166,7 @@ export class LinkerInspector {
     this.inventory.hidden = true;
     this.state = 'closed';
     this.select(null);
+    this.circle.resetZoom();
   }
 
   select(slotKey) {

@@ -3,7 +3,7 @@
 // di trasparenza (nero = pieno, bianco = vuoto) una volta sola, poi si colorano al volo a ogni cambio di colore.
 import { LINKER_SLOTS } from '../game/linker.js';
 
-const MASK_SIZE = 320;          // lato in pixel della maschera (lo slot si vede a circa 90-180 pixel reali)
+const MASK_SIZE = 512;          // lato in pixel della maschera (lo slot si vede fino a ~450 pixel reali con lo zoom)
 export const ART_RING_RADIUS = 356; // raggio dell'anello esterno negli SVG (viewBox -400..400)
 export const ART_HALF_SIZE = 400;
 

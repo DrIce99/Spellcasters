@@ -20,6 +20,7 @@ import { equipLinker, levelUpLinker, catalyzeLinker } from '../services/linker-d
 import { LinkerCircle } from '../ui/linker-circle.js';
 import { LinkerInspector } from '../ui/linker-inspector.js';
 import { RUNE_ALPHABETS } from '../ui/runes.js';
+import { snapshotTexts, scrambleChanged } from '../ui/scramble.js';
 
 initColorTheme();
 setPageFavicon({ element: 'terra' }); // icona della scheda: un cerchio magico diverso per ogni pagina
@@ -430,6 +431,9 @@ function renderLinker(data) {
   linkerAlphabetSelect.disabled = !isOwnProfile;
   linkerPanel.style.setProperty('--linker-color', linkerColorInput.value);
 
+  const slotList = document.getElementById('linker-slots');
+  // Dal secondo render in poi i valori degli slot che cambiano (es. nuovo Linker equipaggiato) si riscrivono
+  const before = slotList.children.length ? snapshotTexts(slotList) : null;
   const rows = LINKER_SLOTS.map(({ key, label }) => {
     const linker = getEquippedLinker(data, key);
     const li = makeElement('li', 'linker-row');
@@ -443,7 +447,8 @@ function renderLinker(data) {
     );
     return li;
   });
-  document.getElementById('linker-slots').replaceChildren(...rows);
+  slotList.replaceChildren(...rows);
+  if (before) scrambleChanged(slotList, before);
   document.getElementById('wallet-bitrune').textContent = getCurrency(data, 'bitrune');
   document.getElementById('wallet-catalyst').textContent = getCurrency(data, 'catalizzante');
   linkerInspector.refresh();
