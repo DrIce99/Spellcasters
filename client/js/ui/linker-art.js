@@ -12,7 +12,8 @@ export const ART_HALF_SIZE = 400;
 const strokeBoost = (width) => width * 1.5 + 4.5;
 
 const masks = new Map(); // chiave dello slot -> canvas con la maschera
-let tinted = { color: null, images: new Map() };
+const tinted = new Map(); // colore -> (chiave dello slot -> canvas colorato); pochi colori alla volta
+const MAX_TINTS = 12;
 let loading = null;
 
 /** Carica tutte le grafiche (una volta sola); si risolve anche se qualcuna manca */
@@ -63,13 +64,17 @@ async function buildMask(url) {
 
 /**
  * Grafica del Linker nel colore indicato (null se non ancora caricata).
- * Le immagini colorate restano in memoria finché il colore non cambia.
+ * Le immagini colorate restano in memoria per gli ultimi colori usati (cerchio del giocatore, set nello shop).
  */
 export function getLinkerArt(key, color) {
   const mask = masks.get(key);
   if (!mask) return null;
-  if (tinted.color !== color) tinted = { color, images: new Map() };
-  let image = tinted.images.get(key);
+  if (!tinted.has(color)) {
+    if (tinted.size >= MAX_TINTS) tinted.delete(tinted.keys().next().value);
+    tinted.set(color, new Map());
+  }
+  const images = tinted.get(color);
+  let image = images.get(key);
   if (!image) {
     image = document.createElement('canvas');
     image.width = image.height = MASK_SIZE;
@@ -78,7 +83,7 @@ export function getLinkerArt(key, color) {
     ctx.globalCompositeOperation = 'source-in';
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, MASK_SIZE, MASK_SIZE);
-    tinted.images.set(key, image);
+    images.set(key, image);
   }
   return image;
 }

@@ -105,7 +105,11 @@ quadrato che ci entra) resta nel messaggio solo per i client non aggiornati.
   con `import * as` (vedi il commento in `runes.js`), altrimenti con Vite è `undefined`.
   Selezione, animazione (tecnica FLIP con la Web Animations API) e inventario in `client/js/ui/linker-inspector.js`.
   Su Firestore è il campo `linker` del giocatore: `{ colore: '#rrggbb', alfabeto, inventario: [{ id, slot, ... }],
-  equip: { core: id, matrix: id, relay: id, conduit: id, apex: id } }` (forma dell'inventario provvisoria).
+  equip: { core: id, matrix: id, relay: id, conduit: id, apex: id } }`. Un Linker è
+  `{ id, set, slot, rarita, livello, exp, principale, secondarie: [{ stat, upgrades }] }`: i valori si calcolano dalle
+  regole, così si possono ribilanciare senza toccare i dati salvati. Valute in `valute: { bitrune, catalizzante }`,
+  garanzia del gacha in `gacha.pity`. Pull, catalisi, livelli ed equipaggiamento sono transazioni
+  (`client/js/services/linker-db.js`); inventario e potenziamento in `client/js/ui/linker-inventory.js`.
 - **Impostazioni** (salvate in `localStorage`): numero di particelle, volume, tema, indicatore della carica selezionata
   (`chargeIndicator`: nessuno / particelle / mirino / entrambi). Il gioco le legge all'apertura della pagina.
 
@@ -287,7 +291,37 @@ Formule in `client/js/game/player-stats.js`.
 ### Linker
 
 Artefatti (come quelli di Genshin) che si equipaggiano nel **cerchio personale** del giocatore, visibile nella pagina
-Info Giocatore (linguetta **Linker** a sinistra). 🔜 Come si ottengono, rarità, statistiche principali e secondarie.
+Info Giocatore (linguetta **Linker** a sinistra). Tutti i numeri sono in `client/js/game/linker-data.js`.
+
+**Valute**: ◈ **BitRune** (60 per ogni vittoria PvP, si spendono nello shop) e ⬢ **Catalizzante** (si ottiene catalizzando
+i Linker, serve per farli salire di livello).
+
+**Shop** (`shop.html`, dalla Home): un pacchetto per ogni set (100 ◈ a pull, solo Linker di quel set) e un pacchetto
+standard (80 ◈, set qualsiasi); pull ×1 o ×10. Probabilità: Comune 45%, Non comune 30%, Raro 16%, Epico 7%,
+Leggendario 2%; garanzia (condivisa tra i pacchetti): almeno un Epico ogni 10 pull, un Leggendario entro 60.
+
+**Statistiche di un Linker**:
+
+| Slot | Main stat possibili |
+|---|---|
+| Core | HP |
+| Matrix | ATK |
+| Relay | Mana%, Rigenerazione mana%, Mana |
+| Conduit | Bonus DMG di un elemento |
+| Apex | Tasso CRIT, DMG CRIT, ATK%, HP%, Bonus DMG di un elemento |
+
+- Sub stat: tante quante le stelle, al massimo 4 (Comune 1 · Non comune 2 · Raro 3 · Epico e Leggendario 4), scelte tra
+  HP, HP%, ATK, ATK%, Mana, Mana%, Rigenerazione mana%, Tasso CRIT, DMG CRIT; mai ripetute e mai uguali alla main stat.
+- I valori sono fissi e non dipendono dalla rarità, tranne la main stat dei Leggendari (×1.15).
+- **Livelli** (fino a +20): ogni livello aumenta la main stat; ogni 4 livelli una sub stat a caso riceve un potenziamento
+  (il numero di potenziamenti è mostrato accanto alle sub stat migliorate). Il livello sale spendendo Catalizzante
+  (pulsante ⬆, schermata con la barra dell'esperienza); il cestino 🗑 catalizza il Linker (resa in base alla rarità più
+  l'80% del Catalizzante investito).
+- **Set** (bonus a 2 e 4 pezzi equipaggiati): Firewall Arcano (HP +15% · DEF elementi +10%), Overclock Runico
+  (ATK +12% · Tasso CRIT +10%), Bus di Mana (Rigenerazione mana +20% · Consumo di mana -10%), Kernel Elementale
+  (Bonus DMG elementi +10% · DMG CRIT +25%).
+- Effetti in gioco: valore base × (1 + %) + valore fisso. **Critico**: tasso base 0% (solo dai Linker), DMG CRIT base 50%;
+  i proiettili tirano il critico a ogni colpo, laser e aree usano il valore medio.
 
 - **5 slot**, uno per tipo di Linker: **Core**, **Matrix**, **Relay**, **Conduit**, **Apex**. Stanno dove i cerchi di gioco
   hanno le cariche, collegati da un pentagono; ogni slot è il cerchio magico del suo Linker (grafica in

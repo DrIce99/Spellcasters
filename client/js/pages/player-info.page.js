@@ -4,14 +4,19 @@ import { setPageFavicon } from '../ui/favicon.js';
 import { getPlayerData, getCurrentUsername, spendSkillPoint, savePlayerData } from '../services/player-db.js';
 import { getExpToNext } from '../game/progression.js';
 import {
-  SKILLS, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, computePlayerStats, getSkillValue, isSkillMaxed, getAtkMultiplier
+  SKILLS, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, MANA_REGEN_PER_FRAME, computePlayerStats, getSkillValue, isSkillMaxed,
+  getAtkMultiplier
 } from '../game/player-stats.js';
 import { ELEMENTS, PROJECTIONS, SYMBOLS, getElementColor, NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR } from '../game/elements.js';
 import { navigateTo, replayClass, shake } from '../ui/motion.js';
 import { playSfx } from '../ui/sfx.js';
 import {
-  LINKER_SLOTS, getLinkerColor, getLinkerAlphabet, getEquippedLinker, getLinkerInventory
+  LINKER_SLOTS, getLinkerColor, getLinkerAlphabet, getEquippedLinker, getLinkerInventory, getCurrency
 } from '../game/linker.js';
+import {
+  LINKER_STATS, LINKER_SETS, mainStatValue, formatStatValue, countEquippedSets, getLinkerBonuses
+} from '../game/linker-data.js';
+import { equipLinker, levelUpLinker, catalyzeLinker } from '../services/linker-db.js';
 import { LinkerCircle } from '../ui/linker-circle.js';
 import { LinkerInspector } from '../ui/linker-inspector.js';
 import { RUNE_ALPHABETS } from '../ui/runes.js';
@@ -289,11 +294,31 @@ function renderStats(data) {
     statRow('Tasso CRIT', formatPercent(stats.critRate)),
     statRow('DMG CRIT', formatPercent(stats.critDmg)),
     divider(),
+    ...linkerStatRows(stats, data),
     ...ELEMENTS.map(e => marginRow(e, stats)),
     divider(),
     ...SYMBOLS.map(s => marginRow(s, stats))
   ];
   list.replaceChildren(...rows);
+}
+
+// Valori finali con i Linker equipaggiati (le righe sopra mostrano solo i punti abilità) e set attivi
+function linkerStatRows(stats, data) {
+  const { sets } = getLinkerBonuses(data);
+  if (!Object.keys(stats.linkerBonuses || {}).length) return [];
+  const rows = [
+    statRow('HP totale (con i Linker)', formatNumber(Math.round(stats.hp * 10) / 10)),
+    statRow('ATK totale (con i Linker)', formatNumber(Math.round(stats.atk * 100) / 100)),
+    statRow('MP totale (con i Linker)', formatNumber(Math.round(stats.mp * 10) / 10)),
+    statRow('Rigenerazione mana', `${formatPercent(stats.manaRegenPerFrame / MANA_REGEN_PER_FRAME)}`)
+  ];
+  for (const { key, count, two, four } of sets) {
+    const set = LINKER_SETS[key];
+    const active = [two && '2 pezzi', four && '4 pezzi'].filter(Boolean).join(' + ') || 'nessun bonus';
+    rows.push(statRow(`${set.name} (${count}/4)`, active, { labelColor: set.color }));
+  }
+  rows.push(makeElement('li', 'stats-divider'));
+  return rows;
 }
 
 async function spendPoint(skill) {
@@ -347,7 +372,11 @@ function renderLinker(data) {
   const color = getLinkerColor(data);
   const alphabet = getLinkerAlphabet(data);
   const isOwnProfile = data.username === getCurrentUsername();
-  const equipped = Object.fromEntries(LINKER_SLOTS.map(({ key }) => [key, !!getEquippedLinker(data, key)]));
+  // Per il cerchio: colore del set e rarità del Linker equipaggiato in ogni slot
+  const equipped = Object.fromEntries(LINKER_SLOTS.map(({ key }) => {
+    const linker = getEquippedLinker(data, key);
+    return [key, linker ? { color: LINKER_SETS[linker.set]?.color || color, rarity: linker.rarita } : null];
+  }));
 
   linkerData = data;
   linkerAlphabetSelect.value = alphabet;
@@ -361,13 +390,28 @@ function renderLinker(data) {
       list: document.getElementById('linker-slots'),
       inventory: document.getElementById('linker-inventory'),
       circle: linkerCircle,
-      getSlotData: (slotKey) => ({
-        items: getLinkerInventory(linkerData, slotKey),
-        equipped: getEquippedLinker(linkerData, slotKey),
-        canEdit: linkerData?.username === getCurrentUsername()
-      }),
-      onEquip: (slotKey, linker) => saveLinkerEquip(slotKey, linker.id),
-      onUnequip: (slotKey) => saveLinkerEquip(slotKey, null)
+      actions: {
+        getSlotData: (slotKey) => ({
+          items: getLinkerInventory(linkerData, slotKey),
+          equipped: getEquippedLinker(linkerData, slotKey),
+          canEdit: linkerData?.username === getCurrentUsername(),
+          catalyst: getCurrency(linkerData, 'catalizzante'),
+          setCounts: countEquippedSets(linkerData)
+        }),
+        onEquip: (slotKey, linker) => linkerAction(
+          () => equipLinker(getCurrentUsername(), slotKey, linker ? linker.id : null),
+          linker ? 'Impossibile equipaggiare il Linker.' : 'Impossibile rimuovere il Linker.'
+        ).then(ok => ok && playSfx(linker ? 'engrave' : 'dispel')),
+        onLevelUp: (linker, targetLevel) => linkerAction(
+          () => levelUpLinker(getCurrentUsername(), linker.id, targetLevel), 'Impossibile potenziare il Linker.'
+        ).then(result => {
+          if (result) playSfx(result.upgraded.length ? 'levelUp' : 'spend');
+          return result;
+        }),
+        onCatalyze: (linker) => linkerAction(
+          () => catalyzeLinker(getCurrentUsername(), linker.id), 'Impossibile catalizzare il Linker.'
+        ).then(result => result && playSfx('dispel'))
+      }
     });
   } else {
     linkerCircle.equipped = equipped;
@@ -393,20 +437,38 @@ function renderLinker(data) {
     li.setAttribute('role', 'tab');
     li.append(
       makeElement('span', 'stat-label linker-slot', label),
-      makeElement('span', linker ? 'stat-value' : 'stat-value empty', linker ? linker.nome || 'Linker' : 'Vuoto')
+      makeElement('span', linker ? 'stat-value' : 'stat-value empty', linker
+        ? `${LINKER_STATS[linker.principale]?.label} ${formatStatValue(linker.principale, mainStatValue(linker))} · +${linker.livello || 0}`
+        : 'Vuoto')
     );
     return li;
   });
   document.getElementById('linker-slots').replaceChildren(...rows);
+  document.getElementById('wallet-bitrune').textContent = getCurrency(data, 'bitrune');
+  document.getElementById('wallet-catalyst').textContent = getCurrency(data, 'catalizzante');
   linkerInspector.refresh();
 }
 
-// Equipaggia (o toglie, con id null) un Linker nello slot e aggiorna pannello e cerchio
-async function saveLinkerEquip(slotKey, linkerId) {
-  if (await saveLinkerOption({ equip: { [slotKey]: linkerId } }, 'Impossibile equipaggiare il Linker.')) {
-    linkerData = { ...linkerData, linker: { ...linkerData.linker, equip: { ...linkerData.linker?.equip, [slotKey]: linkerId } } };
-    renderLinker(linkerData);
+// Esegue un'operazione sui Linker (transazione su Firestore), poi ricarica il profilo:
+// pannello Linker, cerchio e statistiche si aggiornano insieme. In caso di errore lo mostra e restituisce null.
+async function linkerAction(operation, errorMessage) {
+  const errorEl = document.getElementById('linker-error');
+  errorEl.textContent = '';
+  let result = null;
+  try {
+    result = (await operation()) ?? true;
+  } catch (error) {
+    console.error('❌ Operazione sui Linker non riuscita:', error);
+    errorEl.textContent = error.message ? `${errorMessage} (${error.message})` : errorMessage;
+    playSfx('error');
+    shake(errorEl);
   }
+  const data = await getPlayerData(linkerData.username);
+  if (data) {
+    renderLinker(data);
+    renderStats(data);
+  }
+  return result;
 }
 
 // Il cerchio ruota (come tutti i cerchi magici) solo mentre il pannello è visibile
@@ -461,6 +523,7 @@ onColorThemeChange(() => {
 });
 
 document.getElementById('back-home-btn').onclick = () => navigateTo('/home.html');
+document.getElementById('linker-shop-btn').onclick = () => navigateTo('/shop.html');
 document.getElementById('open-stats-btn').onclick = () => {
   document.body.classList.add('show-stats');
   playSfx('slide', { direction: -1 });

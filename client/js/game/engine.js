@@ -35,7 +35,8 @@ import {
 } from './elements.js';
 import { getExpToNext, BURNOUT_FRAMES } from './progression.js';
 import {
-  computePlayerStats, getRecognitionThreshold, applyElementDefense, getAtkMultiplier, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT
+  computePlayerStats, getRecognitionThreshold, applyElementDefense, getAtkMultiplier, averageCritMultiplier,
+  BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT
 } from './player-stats.js';
 import {
   getInteraction, blocksProjectiles, bouncesOffSurfaces, VARIANT_COLORS, VARIANT_DURATIONS,
@@ -1268,7 +1269,8 @@ function sendLaserUpdate(laser, extra = {}) {
     areaId: laser.id,
     variant: laser.variant,
     expiresIn: laser.expiresAt ? Math.max(0, laser.expiresAt - Date.now()) : null,
-    damagePerTick: playerStats.damage.laser * (1 + dmgBonus),
+    // Danno a tick: il critico (dai Linker) conta come valore medio
+    damagePerTick: playerStats.damage.laser * (1 + dmgBonus) * averageCritMultiplier(playerStats),
     magmaAtk: laser.variantAtk,
     ...extra
   });
@@ -1585,7 +1587,8 @@ function lightenColor(color, amount) {
 // Danno ogni 0.5 s a chi sta dentro l'area: lo calcola chi la lancia (dipende dal suo ATK)
 function getAreaDamagePerTick(polygon, element) {
   const dmgBonus = playerStats.elementDmgBonus[element] || 0;
-  return playerStats.damage.spaziale * (polygonArea(polygon) / SPATIAL_DAMAGE_AREA_UNIT) * (1 + dmgBonus);
+  return playerStats.damage.spaziale * (polygonArea(polygon) / SPATIAL_DAMAGE_AREA_UNIT) * (1 + dmgBonus)
+    * averageCritMultiplier(playerStats); // il critico (dai Linker) conta come valore medio
 }
 
 // Registra un'area del giocatore locale (lanciata da lui, oppure ceduta dall'avversario)

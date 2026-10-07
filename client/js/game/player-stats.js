@@ -1,6 +1,7 @@
 // player-stats.js - Statistiche del giocatore: punti abilità, affinità e valori derivati.
 // Unico posto in cui sono definite le formule: lo usano il gioco, l'arena e la pagina info.
 import { ELEMENTS, SYMBOLS } from './elements.js';
+import { getLinkerBonuses } from './linker-data.js';
 
 // Statistiche potenziabili con i punti abilità (salvati su DB in `puntiAbilita`)
 export const SKILLS = {
@@ -12,6 +13,12 @@ export const SKILLS = {
 
 // Rigenerazione del mana: non dipende più dal livello (~0.3 mana al secondo a 60fps)
 export const MANA_REGEN_PER_FRAME = 0.005;
+
+// Critico: il tasso arriva solo dai Linker; un colpo critico fa il danno × (1 + DMG CRIT)
+export const BASE_CRIT_RATE = 0;
+export const BASE_CRIT_DMG = 0.5;
+const MAX_CRIT_RATE = 1;
+const MAX_ELEMENT_DEF = 0.9;
 
 // Danni base con ATK = SKILLS.atk.base; scalano in proporzione all'ATK
 export const BASE_DAMAGE = {
@@ -74,7 +81,11 @@ export function computePlayerStats(playerData = {}) {
   const affinity = playerData.affinita || {};
   const timesDrawn = playerData.segniDisegnati || {};
 
-  const atk = getSkillValue('atk', allocation.atk);
+  // Linker equipaggiati: valore base × (1 + %) + valore fisso, come gli artefatti di Genshin
+  const { totals: linker } = getLinkerBonuses(playerData);
+  const bonus = (key) => linker[key] || 0;
+
+  const atk = getSkillValue('atk', allocation.atk) * (1 + bonus('atkPct')) + bonus('atk');
   const atkMultiplier = getAtkMultiplier(atk);
 
   const elementDmgBonus = {};
@@ -82,8 +93,8 @@ export function computePlayerStats(playerData = {}) {
   const recognitionMargin = {};
   for (const element of ELEMENTS) {
     const curve = affinityCurve(affinity[element]);
-    elementDmgBonus[element] = 0; // nessuna fonte per ora
-    elementDef[element] = MAX_AFFINITY_DEF * curve;
+    elementDmgBonus[element] = bonus(`dmg_${element}`) + bonus('elementalAll');
+    elementDef[element] = Math.min(MAX_ELEMENT_DEF, MAX_AFFINITY_DEF * curve + bonus('elementDefAll'));
     recognitionMargin[element] = BASE_RECOGNITION_MARGIN + MAX_AFFINITY_RECOGNITION_BONUS * curve;
   }
   for (const symbol of SYMBOLS) {
@@ -96,11 +107,12 @@ export function computePlayerStats(playerData = {}) {
     skillPointsSpent: spent,
     skillPointsAvailable: Math.max(0, getTotalSkillPoints(level) - spent),
 
-    hp: getSkillValue('hp', allocation.hp),
+    hp: getSkillValue('hp', allocation.hp) * (1 + bonus('hpPct')) + bonus('hp'),
     atk,
-    mp: getSkillValue('mp', allocation.mp),
-    riduzioneMana: getSkillValue('riduzioneMana', allocation.riduzioneMana),
-    manaRegenPerFrame: MANA_REGEN_PER_FRAME,
+    mp: getSkillValue('mp', allocation.mp) * (1 + bonus('mpPct')) + bonus('mp'),
+    riduzioneMana: Math.min(SKILLS.riduzioneMana.max, getSkillValue('riduzioneMana', allocation.riduzioneMana) + bonus('manaReduction')),
+    manaRegenPerFrame: MANA_REGEN_PER_FRAME * (1 + bonus('regenPct')),
+    linkerBonuses: linker,
 
     damage: {
       proiettile: BASE_DAMAGE.proiettile * atkMultiplier,
@@ -109,8 +121,8 @@ export function computePlayerStats(playerData = {}) {
     },
     elementDmgBonus,
     elementDef,
-    critRate: 0, // non ancora implementati
-    critDmg: 0,
+    critRate: Math.min(MAX_CRIT_RATE, BASE_CRIT_RATE + bonus('critRate')),
+    critDmg: BASE_CRIT_DMG + bonus('critDmg'),
     recognitionMargin
   };
 }
@@ -119,6 +131,17 @@ export function computePlayerStats(playerData = {}) {
 export function getRecognitionThreshold(stats, name) {
   const margin = stats?.recognitionMargin?.[name] ?? BASE_RECOGNITION_MARGIN;
   return 1 - margin;
+}
+
+/** Danno di un colpo singolo (proiettile): critico tirato a caso */
+export function rollCritical(damage, stats, random = Math.random) {
+  const crit = random() < (stats?.critRate || 0);
+  return { damage: crit ? damage * (1 + (stats?.critDmg || 0)) : damage, crit };
+}
+
+/** Moltiplicatore medio del critico: per i danni a tick (aree, laser) */
+export function averageCritMultiplier(stats) {
+  return 1 + (stats?.critRate || 0) * (stats?.critDmg || 0);
 }
 
 // Danno ricevuto dopo la difesa elementale (null = mana puro, nessuna difesa)

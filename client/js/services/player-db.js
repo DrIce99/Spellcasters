@@ -23,7 +23,9 @@ export function createDefaultPlayer(username, password = '') {
     partite: 0,
     magie: [],
     spellbook: {},       // {'1': {elemento, proiezioni: [...], savedAt}, ...}: cerchi salvati negli slot 1-9
-    linker: {},          // {colore: '#rrggbb', alfabeto, equip: {core, matrix, relay, conduit, apex}}: cerchio personale e Linker
+    linker: {},          // {colore: '#rrggbb', alfabeto, inventario: [...], equip: {core: id, ...}}: cerchio personale e Linker
+    valute: { bitrune: 0, catalizzante: 0 }, // BitRune: dalle vittorie, per lo shop · Catalizzante: per livellare i Linker
+    gacha: { pity: { sinceEpic: 0, sinceLegendary: 0 } }, // pull fatte dall'ultimo Epico / Leggendario
     predisposizione: {}
   };
 }

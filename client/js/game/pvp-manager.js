@@ -7,9 +7,11 @@ import { audioManager } from './audio-manager.js';
 import { getElementColor, getOpponentElementColor } from './elements.js';
 import { VARIANT_COLORS } from './spell-interactions.js';
 import { drawBrushStroke } from './brush-stroke.js';
-import { computePlayerStats, applyElementDefense, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, SKILLS } from './player-stats.js';
+import { computePlayerStats, applyElementDefense, rollCritical, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, SKILLS } from './player-stats.js';
 import { WS_URL } from '../services/config.js';
 import { loadPlayerFromDB, savePlayerData, getCurrentUsername } from '../services/player-db.js';
+import { addBitRune } from '../services/linker-db.js';
+import { WIN_REWARD, CURRENCIES } from './linker-data.js';
 import { navigateTo, fadeOutAndHide } from '../ui/motion.js';
 import { playSfx } from '../ui/sfx.js';
 
@@ -847,13 +849,13 @@ export class PvPManager {
         return Math.hypot(projectile.x - position.x, projectile.y - position.y) < HIT_RADIUS;
     }
 
-    // Danno "lordo" (ATK, elemento, bonus danno): la difesa del bersaglio la applica il server
+    // Danno "lordo" (ATK, elemento, bonus danno, critico): la difesa del bersaglio la applica il server
     calculateDamage(projectile) {
         // Il fulmine non ha moltiplicatore: in compenso rimbalza (più occasioni di colpire)
         const multiplierByElement = { fuoco: 1.1, acqua: 1.2, aria: 1.2, terra: 1.4, fulmine: 1 };
         const baseDamage = this.playerStats.damage.proiettile;
         const dmgBonus = this.playerStats.elementDmgBonus[projectile.element] || 0;
-        const damage = baseDamage * (multiplierByElement[projectile.element] || 1) * (1 + dmgBonus);
+        const { damage } = rollCritical(baseDamage * (multiplierByElement[projectile.element] || 1) * (1 + dmgBonus), this.playerStats);
         return Math.round(damage * 10) / 10;
     }
 
@@ -1050,6 +1052,7 @@ export class PvPManager {
 
         if (this.postMatchOverlay && this.matchResultText) {
             this.matchResultText.textContent = message;
+            if (won === true) this.showWinReward();
             this.matchResultText.className = won === null ? '' : (won ? 'victory' : 'defeat');
             this.postMatchOverlay.classList.remove('hidden');
             playSfx(won === null ? 'draw' : (won ? 'victory' : 'defeat'));
@@ -1088,9 +1091,21 @@ export class PvPManager {
                 partite: (playerData.partite || 0) + 1,
                 vittorie: (playerData.vittorie || 0) + (won === true ? 1 : 0)
             });
+            // Ogni vittoria vale dei BitRune da spendere nello shop
+            if (won === true) await addBitRune(username, WIN_REWARD);
         } catch (error) {
             console.error('❌ Errore aggiornamento statistiche:', error);
         }
+    }
+
+    // Sotto la scritta "Vittoria!": la ricompensa in BitRune
+    showWinReward() {
+        if (this.postMatchOverlay.querySelector('.match-reward')) return;
+        const { name, symbol } = CURRENCIES.bitrune;
+        const reward = document.createElement('p');
+        reward.className = 'match-reward';
+        reward.textContent = `+${WIN_REWARD} ${symbol} ${name}`;
+        this.matchResultText.after(reward);
     }
 
     isActive() {

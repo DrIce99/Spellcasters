@@ -438,6 +438,10 @@
       color: var(--text-muted);
       text-align: center;
     }
+    .linker-wallet { cursor: default; gap: 14px; }
+    .wallet-item strong { color: var(--accent-text); font-variant-numeric: tabular-nums; }
+    .linker-shop-btn { --cut: 6px; padding: 0.35em 0.9em; font-size: 0.8rem; }
+
     .linker-card {
       --rarity: var(--line-strong);
       position: relative;
@@ -452,13 +456,19 @@
       cursor: pointer;
       text-align: center;
     }
-    .linker-card.rarity-3 { --rarity: #4a9eff; }
-    .linker-card.rarity-4 { --rarity: #a86bff; }
-    .linker-card.rarity-5 { --rarity: var(--gold); }
+    .linker-card {
+      background:
+        linear-gradient(to bottom, color-mix(in srgb, var(--rarity) 22%, transparent), transparent 70%),
+        var(--surface-2);
+      box-shadow: inset 3px 0 0 var(--set, transparent);
+    }
+    .linker-card:hover { border-color: var(--rarity); }
     .linker-card.picked { outline: 2px solid var(--linker-color, var(--accent)); outline-offset: 1px; }
+    .linker-card-set { font-size: 0.68rem; color: var(--text-muted); line-height: 1.2; }
     .linker-card-level { position: absolute; top: 3px; left: 6px; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); }
     .linker-card-name { font-weight: 700; font-size: 0.85rem; }
-    .linker-card-stars, .linker-detail-stars { color: var(--gold); letter-spacing: 1px; }
+    .linker-card-stars { color: var(--rarity); letter-spacing: 1px; font-size: 0.8rem; }
+    .linker-detail-stars { letter-spacing: 1px; }
     .linker-card-equipped {
       position: absolute;
       top: 3px;
@@ -478,12 +488,57 @@
       background: var(--tint);
       box-shadow: inset 3px 0 0 var(--linker-color, var(--accent));
     }
-    .linker-detail-title { margin: 0; font-size: 1.05rem; }
+    .linker-detail-title { margin: 0; font-size: 1.05rem; color: var(--set, var(--text)); }
+    .linker-detail.busy { opacity: 0.6; pointer-events: none; }
+    .linker-detail-level { font-weight: 800; color: var(--text); }
     .linker-detail-meta, .linker-detail-empty { margin: 0; color: var(--text-muted); }
     .linker-detail-stars { margin: 0; }
     .linker-detail-stats { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
     .linker-stat { display: flex; justify-content: space-between; padding: 6px 2px; border-bottom: 1px dashed var(--line); }
     .linker-stat.main { font-weight: 800; font-size: 1.05rem; }
+    .linker-stat-upgrades {
+      margin-left: 6px;
+      padding: 0 5px;
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: var(--on-accent);
+      background: var(--linker-color, var(--accent));
+    }
+    .linker-stat.just-upgraded { animation: sub-upgraded 1.4s ease-out; }
+    @keyframes sub-upgraded {
+      0%, 30% { background: color-mix(in srgb, var(--linker-color, var(--accent)) 30%, transparent); }
+    }
+    .linker-set {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      box-shadow: inset 3px 0 0 var(--set);
+    }
+    .linker-set-name { margin: 0 0 4px; font-weight: 700; color: var(--set); }
+    .linker-set-bonus { margin: 0; font-size: 0.85rem; color: var(--text-muted); opacity: 0.7; }
+    .linker-set-bonus.active { color: var(--text); opacity: 1; font-weight: 600; }
+    .linker-icon-btn {
+      --cut: 6px;
+      min-width: 40px;
+      padding: 0.5em 0.7em;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+    .linker-icon-btn.danger.confirming {
+      --edge: var(--danger);
+      color: var(--danger);
+      font-family: 'Cinzel', serif;
+      font-size: 0.8rem;
+    }
+    .linker-chip { --cut: 5px; padding: 0.35em 0.7em; font-size: 0.75rem; letter-spacing: 0.04em; }
+    .linker-exp { height: 8px; border: 1px solid var(--line-strong); background: var(--surface-2); }
+    .linker-exp-fill { height: 100%; background: var(--linker-color, var(--accent)); transition: width 0.5s ease; }
+    .linker-exp-text, .linker-level-note { margin: 0; font-size: 0.8rem; color: var(--text-muted); }
+    .linker-level-stepper { display: flex; align-items: center; justify-content: center; gap: 12px; }
+    .linker-level-target { min-width: 7em; text-align: center; font-family: 'Cinzel', serif; font-weight: 800; font-size: 1.1rem; }
+    .linker-level-shortcuts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+    .linker-level-cost { margin: 0; display: flex; justify-content: space-between; font-weight: 700; }
+    .linker-level-cost .insufficient { color: var(--danger); }
     .linker-stat-value { font-variant-numeric: tabular-nums; font-weight: 700; }
     .linker-detail-badge { margin: 0; font-weight: 700; color: var(--linker-color, var(--accent-text)); }
     .linker-detail-actions { margin-top: auto; display: flex; gap: 8px; }
@@ -552,6 +607,11 @@
       <label class="linker-option">Rune:
         <select id="linker-alphabet"></select>
       </label>
+      <div class="linker-option linker-wallet" title="BitRune: si ottengono vincendo nell'Arena · Catalizzante: si ottiene catalizzando i Linker">
+        <span class="wallet-item">◈ <strong id="wallet-bitrune">0</strong> BitRune</span>
+        <span class="wallet-item">⬢ <strong id="wallet-catalyst">0</strong> Catalizzante</span>
+        <button type="button" id="linker-shop-btn" class="linker-shop-btn">Shop</button>
+      </div>
     </div>
     <div class="linker-layout">
       <canvas id="linker-circle" width="380" height="380" aria-label="Cerchio dei Linker: clicca uno slot per aprirlo"></canvas>

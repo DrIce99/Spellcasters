@@ -7,7 +7,7 @@ const clientDir = resolve(projectRoot, 'client');
 
 // Tutto il codice che gira nel browser vive in client/.
 // Le pagine HTML elencate qui sotto sono quelle incluse nella build di produzione.
-const pages = ['index', 'home', 'lab', 'game', 'arena', 'player-info', 'version'];
+const pages = ['index', 'home', 'lab', 'game', 'arena', 'player-info', 'version', 'shop'];
 
 export default defineConfig({
   root: clientDir,

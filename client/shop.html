@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spellcasters - Shop</title>
+  <link rel="icon" href="data:,"> <!-- sostituita da js/ui/favicon.js con un cerchio magico -->
+  <link rel="stylesheet" href="/css/style-base.css">
+  <link rel="stylesheet" href="/css/style-buttons.css">
+  <link rel="stylesheet" href="/css/style-shop.css">
+  <link rel="stylesheet" href="/css/style-motion.css">
+  <!-- Tema già al primo disegno: niente lampo chiaro di notte, e il velo di transizione ha il colore giusto -->
+  <script>document.documentElement.dataset.theme = localStorage.getItem('colorMode') === 'night' ? 'night' : 'day';</script>
+</head>
+<body>
+  <button id="home-btn" class="main-btn">Home</button>
+
+  <main id="shop">
+    <h1 class="section-title">Shop dei Linker</h1>
+    <div class="shop-status">
+      <p class="shop-wallet" title="Si ottengono vincendo nell'Arena">◈ <strong id="shop-bitrune">—</strong> BitRune</p>
+      <p class="shop-pity" id="shop-pity"></p>
+      <button type="button" id="shop-linker-btn" class="shop-small-btn">I miei Linker</button>
+    </div>
+    <p class="shop-rates" id="shop-rates"></p>
+    <p class="shop-error" id="shop-error" role="alert"></p>
+    <ul class="shop-packs" id="shop-packs"></ul>
+  </main>
+
+  <!-- Risultato delle pull: le carte si rivelano una alla volta -->
+  <div id="pull-overlay" class="pull-overlay" hidden>
+    <h2 class="section-title" id="pull-title">Linker ottenuti</h2>
+    <ul class="pull-results" id="pull-results"></ul>
+    <div class="pull-actions">
+      <button type="button" id="pull-close" class="main-btn">Continua</button>
+      <button type="button" id="pull-linker" class="main-btn">Vai ai Linker</button>
+    </div>
+  </div>
+
+  <script type="module" src="./js/pages/shop.page.js"></script>
+</body>
+</html>

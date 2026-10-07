@@ -19,7 +19,9 @@ const SELECTED_SLOT_SCALE = 1.12;          // lo slot selezionato si ingrandisce
 function slotAngle(index) {
   return -Math.PI / 2 + (Math.PI * 2 / LINKER_SLOTS.length) * index;
 }
-const EXTENT = SLOT_ORBIT + SLOT_OUTER + 14; // metà del lato disegnato (slot compresi)
+const RARITY_RING_GAP = 3.2;                // anelli della rarità attorno agli slot equipaggiati: uno per stella
+const RARITY_RINGS_MAX = 5;
+const EXTENT = SLOT_ORBIT + (SLOT_OUTER + RARITY_RING_GAP * (RARITY_RINGS_MAX + 1)) * 1.12; // metà del lato disegnato
 const ROTATION_SPEED = 0.003;              // per frame a 60fps, come circleRotation in engine.js
 
 // Anello del nome: le rune sono distribuite in modo uniforme su tutto l'anello (anche tra l'ultima e la prima
@@ -48,7 +50,9 @@ export function runeRingLayout(count) {
 export class LinkerCircle {
   /**
    * @param {HTMLCanvasElement} canvas
-   * @param {{ color: string, name: string, alphabet?: string, equipped?: Record<string, boolean> }} options
+   * @param {{ color: string, name: string, alphabet?: string,
+   *   equipped?: Record<string, { color: string, rarity: number } | null> }} options
+   *   equipped: per ogni slot il colore del set e la rarità del Linker equipaggiato
    */
   constructor(canvas, { color, name, alphabet, equipped = {} }) {
     this.canvas = canvas;
@@ -236,10 +240,15 @@ export class LinkerCircle {
   }
 
   drawSlot(key, { x, y, angle }) {
-    const { ctx, color } = this;
+    const { ctx } = this;
     const selected = this.selected === key;
     const active = selected || this.highlight === key;
-    const equipped = !!this.equipped[key];
+    const linker = this.equipped[key] || null;
+    const equipped = !!linker;
+    // Slot con un Linker: tutto nel colore del suo set
+    const color = linker?.color || this.color;
+    const rings = equipped ? Math.min(RARITY_RINGS_MAX, linker.rarity || 0) : 0;
+    const ringRadius = (i) => SLOT_OUTER + RARITY_RING_GAP * (i + 1);
     ctx.save();
     ctx.translate(x, y);
     // La parte superiore della grafica guarda verso l'esterno del cerchio
@@ -248,7 +257,7 @@ export class LinkerCircle {
     // Lo slot copre il pentagono e gli anelli del cerchio che passano sotto di lui
     ctx.globalCompositeOperation = 'destination-out';
     ctx.beginPath();
-    ctx.arc(0, 0, SLOT_OUTER, 0, Math.PI * 2);
+    ctx.arc(0, 0, (rings ? ringRadius(rings - 1) : SLOT_OUTER) + 1.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalCompositeOperation = 'source-over';
 
@@ -272,6 +281,16 @@ export class LinkerCircle {
       ctx.lineWidth = 1.7;
       ctx.beginPath();
       ctx.arc(0, 0, SLOT_OUTER, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Rarità: anelli concentrici esterni, uno per stella, nel colore del set
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < rings; i++) {
+      ctx.beginPath();
+      ctx.arc(0, 0, ringRadius(i), 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();

@@ -20,6 +20,7 @@ if (!username) {
 // --- Navigazione ---
 document.getElementById('btn-lab').onclick = () => navigateTo('/lab.html');
 document.getElementById('btn-arena').onclick = () => navigateTo('/arena.html');
+document.getElementById('btn-shop').onclick = () => navigateTo('/shop.html');
 const versionBtn = document.getElementById('version');
 versionBtn.textContent = `Version ${CURRENT_VERSION}`;
 versionBtn.title = 'Patch notes';

@@ -390,6 +390,17 @@ input[type="range"] {
 #post-match-overlay p {
   color: #c3cbea;
 }
+/* Ricompensa della vittoria (BitRune) */
+#post-match-overlay .match-reward {
+  color: #ffd166;
+  font-size: 1.5em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 18px rgba(255, 209, 102, 0.5);
+  transform: scale(0.9);
+  opacity: 0;
+  animation: fadeIn 0.8s 0.5s forwards;
+}
 @keyframes fadeIn {
   to {
     transform: scale(1);

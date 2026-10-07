@@ -5,7 +5,7 @@
 //      che intanto si sposta a sinistra;
 //   3. a destra compare l'inventario dei Linker di quello slot, con il dettaglio di quello scelto.
 // Le voci sotto il cerchio fanno da schede: si cambia slot senza chiudere. ✕ o Esc chiudono (animazione al contrario).
-import { LINKER_SLOTS } from '../game/linker.js';
+import { LinkerInventoryView } from './linker-inventory.js';
 
 const COMPACT_MS = 380;      // fase 1: la lista si restringe
 const TRAIN_MS = 720;        // fase 2: durata del viaggio di ogni voce
@@ -14,25 +14,8 @@ const CIRCLE_MS = 780;
 const INVENTORY_MS = 320;    // fase 3: comparsa/sparizione dell'inventario
 const EASE = 'cubic-bezier(.65, 0, .35, 1)';
 
-const SORTS = {
-  rarita: (a, b) => (b.rarita || 0) - (a.rarita || 0) || (b.livello || 0) - (a.livello || 0),
-  livello: (a, b) => (b.livello || 0) - (a.livello || 0) || (b.rarita || 0) - (a.rarita || 0)
-};
-
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, reducedMotion.matches ? 0 : ms));
-const label = (slotKey) => LINKER_SLOTS.find(s => s.key === slotKey)?.label || slotKey;
-
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function stars(count) {
-  return '★'.repeat(Math.max(0, Math.min(5, count || 0)));
-}
 
 export class LinkerInspector {
   /**
@@ -42,26 +25,13 @@ export class LinkerInspector {
    * @param {HTMLElement} options.list lista degli slot (una riga per slot, con data-slot)
    * @param {HTMLElement} options.inventory pannello dell'inventario
    * @param {import('./linker-circle.js').LinkerCircle} options.circle
-   * @param {(slotKey: string) => { items: object[], equipped: object|null, canEdit: boolean }} options.getSlotData
-   * @param {(slotKey: string, linker: object) => void} [options.onEquip]
-   * @param {(slotKey: string) => void} [options.onUnequip]
+   * @param {object} options.actions dati e azioni dell'inventario (vedi LinkerInventoryView)
    */
-  constructor({ layout, canvas, list, inventory, circle, getSlotData, onEquip, onUnequip }) {
-    Object.assign(this, { layout, canvas, list, inventory, circle, getSlotData, onEquip, onUnequip });
+  constructor({ layout, canvas, list, inventory, circle, actions }) {
+    Object.assign(this, { layout, canvas, list, inventory, circle });
     this.state = 'closed';     // closed | opening | open | closing
     this.slot = null;          // slot aperto
-    this.pickedId = null;      // Linker scelto nella griglia (mostrato nel dettaglio)
-    this.sort = 'rarita';
-
-    this.title = inventory.querySelector('[data-role="title"]');
-    this.count = inventory.querySelector('[data-role="count"]');
-    this.grid = inventory.querySelector('[data-role="grid"]');
-    this.detail = inventory.querySelector('[data-role="detail"]');
-    const sortSelect = inventory.querySelector('[data-role="sort"]');
-    sortSelect.addEventListener('change', () => {
-      this.sort = sortSelect.value;
-      this.renderInventory();
-    });
+    this.view = new LinkerInventoryView(inventory, actions);
     inventory.querySelector('[data-role="close"]').addEventListener('click', () => this.close());
 
     this.bindCanvas();
@@ -109,7 +79,7 @@ export class LinkerInspector {
   /** Da chiamare quando la pagina ricrea le righe della lista o cambiano i dati del giocatore */
   refresh() {
     this.markRows();
-    if (this.slot) this.renderInventory();
+    if (this.slot) this.view.render();
   }
 
   markRows() {
@@ -193,11 +163,10 @@ export class LinkerInspector {
   }
 
   select(slotKey) {
-    if (slotKey !== this.slot) this.pickedId = null;
     this.slot = slotKey;
     this.circle.setSelected(slotKey);
     this.markRows();
-    if (slotKey) this.renderInventory();
+    this.view.setSlot(slotKey);
   }
 
   // Tecnica FLIP: l'elemento è già nella posizione finale, si anima la differenza dalla posizione di partenza
@@ -225,93 +194,5 @@ export class LinkerInspector {
       [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
       { duration: CIRCLE_MS, easing: EASE, fill: 'backwards' }
     ).finished.catch(() => {});
-  }
-
-  // --- Inventario: griglia dei Linker dello slot e dettaglio di quello scelto ---
-
-  renderInventory() {
-    const { items, equipped, canEdit } = this.getSlotData(this.slot);
-    const sorted = [...items].sort(SORTS[this.sort]);
-    // Come in Genshin: si parte da quello equipaggiato, altrimenti dal primo della lista
-    const picked = sorted.find(l => l.id === this.pickedId) || equipped || sorted[0] || null;
-    this.pickedId = picked?.id ?? null;
-
-    this.title.textContent = label(this.slot);
-    this.count.textContent = String(items.length);
-
-    if (sorted.length === 0) {
-      this.grid.replaceChildren(el('li', 'linker-grid-empty', `Non possiedi ancora Linker ${label(this.slot)}.`));
-    } else {
-      this.grid.replaceChildren(...sorted.map(linker => this.card(linker, linker === picked, linker.id === equipped?.id)));
-    }
-    this.renderDetail(picked, equipped, canEdit);
-  }
-
-  card(linker, picked, isEquipped) {
-    const li = el('li', `linker-card rarity-${linker.rarita || 0}`);
-    li.tabIndex = 0;
-    li.classList.toggle('picked', picked);
-    li.append(
-      el('span', 'linker-card-level', `+${linker.livello || 0}`),
-      el('span', 'linker-card-name', linker.nome || label(linker.slot)),
-      el('span', 'linker-card-stars', stars(linker.rarita))
-    );
-    if (isEquipped) li.append(el('span', 'linker-card-equipped', 'Equipaggiato'));
-    const pick = () => {
-      this.pickedId = linker.id;
-      this.renderInventory();
-    };
-    li.addEventListener('click', pick);
-    li.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        pick();
-      }
-    });
-    return li;
-  }
-
-  renderDetail(linker, equipped, canEdit) {
-    const { detail } = this;
-    if (!linker) {
-      detail.replaceChildren(
-        el('h4', 'linker-detail-title', `${label(this.slot)}: vuoto`),
-        el('p', 'linker-detail-empty', 'Quando otterrai dei Linker di questo tipo li troverai qui: selezionane uno per vederne le statistiche ed equipaggiarlo.')
-      );
-      return;
-    }
-    const isEquipped = linker.id === equipped?.id;
-    const rows = [];
-    if (linker.principale) rows.push(this.statLine(linker.principale, 'main'));
-    for (const sub of linker.secondarie || []) rows.push(this.statLine(sub, 'sub'));
-
-    const actions = el('div', 'linker-detail-actions');
-    if (canEdit) {
-      if (isEquipped) {
-        const remove = el('button', 'linker-action', 'Rimuovi');
-        remove.addEventListener('click', () => this.onUnequip?.(this.slot));
-        actions.append(remove);
-      } else {
-        const equip = el('button', 'linker-action primary', equipped ? 'Sostituisci' : 'Equipaggia');
-        equip.addEventListener('click', () => this.onEquip?.(this.slot, linker));
-        actions.append(equip);
-      }
-    }
-
-    detail.replaceChildren(
-      el('h4', 'linker-detail-title', linker.nome || label(this.slot)),
-      el('p', 'linker-detail-meta', `${label(this.slot)} · +${linker.livello || 0}`),
-      el('p', `linker-detail-stars rarity-${linker.rarita || 0}`, stars(linker.rarita)),
-      ...(rows.length ? [el('ul', 'linker-detail-stats')] : []),
-      ...(isEquipped ? [el('p', 'linker-detail-badge', 'Equipaggiato')] : []),
-      actions
-    );
-    detail.querySelector('.linker-detail-stats')?.append(...rows);
-  }
-
-  statLine({ nome, valore }, kind) {
-    const li = el('li', `linker-stat ${kind}`);
-    li.append(el('span', 'linker-stat-name', nome ?? ''), el('span', 'linker-stat-value', valore ?? ''));
-    return li;
   }
 }
