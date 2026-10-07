@@ -1,7 +1,7 @@
-// player-info.page.js - Statistiche del giocatore e grafici radar (Chart.js da CDN)
+// player-info.page.js - Statistiche del giocatore, grafici radar (Chart.js da CDN) e cerchio dei Linker
 import { initColorTheme, onColorThemeChange } from '../ui/theme.js';
 import { setPageFavicon } from '../ui/favicon.js';
-import { getPlayerData, getCurrentUsername, spendSkillPoint } from '../services/player-db.js';
+import { getPlayerData, getCurrentUsername, spendSkillPoint, savePlayerData } from '../services/player-db.js';
 import { getExpToNext } from '../game/progression.js';
 import {
   SKILLS, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, computePlayerStats, getSkillValue, isSkillMaxed, getAtkMultiplier
@@ -9,6 +9,12 @@ import {
 import { ELEMENTS, PROJECTIONS, SYMBOLS, getElementColor, NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR } from '../game/elements.js';
 import { navigateTo, replayClass, shake } from '../ui/motion.js';
 import { playSfx } from '../ui/sfx.js';
+import {
+  LINKER_SLOTS, getLinkerColor, getLinkerAlphabet, getEquippedLinker, getLinkerInventory
+} from '../game/linker.js';
+import { LinkerCircle } from '../ui/linker-circle.js';
+import { LinkerInspector } from '../ui/linker-inspector.js';
+import { RUNE_ALPHABETS } from '../ui/runes.js';
 
 initColorTheme();
 setPageFavicon({ element: 'terra' }); // icona della scheda: un cerchio magico diverso per ogni pagina
@@ -145,6 +151,8 @@ async function renderPlayerInfo() {
     showError('Username non specificato.');
     return;
   }
+  // Il cerchio dei Linker si disegna subito (nome dall'URL, colore predefinito), poi arrivano i dati
+  if (!linkerCircle) renderLinker({ username });
   const data = await getPlayerData(username);
   if (!data) {
     showError('Utente non trovato. Effettua di nuovo il login.');
@@ -160,6 +168,7 @@ async function renderPlayerInfo() {
   document.getElementById('info-partite').textContent = data.partite || 0;
   renderRadarCharts(data.affinita || {}, data.proiezioniUsate || {});
   renderStats(data);
+  renderLinker(data);
 }
 
 // ============================================================
@@ -313,6 +322,137 @@ async function spendPoint(skill) {
   }
 }
 
+// ============================================================
+// LINKER: cerchio personale (colore scelto dal giocatore, nome in rune) e i 5 slot
+// ============================================================
+
+const linkerCanvas = document.getElementById('linker-circle');
+const linkerColorInput = document.getElementById('linker-color');
+const linkerColorValue = document.getElementById('linker-color-value');
+const linkerAlphabetSelect = document.getElementById('linker-alphabet');
+linkerAlphabetSelect.append(...RUNE_ALPHABETS.map(({ key, label }) => new Option(label, key)));
+const linkerPanel = document.getElementById('linker-panel');
+let linkerCircle = null;
+let linkerInspector = null;
+let linkerData = null;       // ultimo profilo mostrato nel pannello (per l'inventario dei Linker)
+let savedLinkerColor = null; // ultimo colore salvato su Firestore (per non risalvare lo stesso)
+
+// Un canvas non si ridisegna da solo quando arriva un font web: si aspetta quello delle rune
+function whenRuneFontReady() {
+  if (!document.fonts?.load) return Promise.resolve();
+  return document.fonts.load("16px 'Noto Sans Runic'", 'ᚠ').catch(() => {});
+}
+
+function renderLinker(data) {
+  const color = getLinkerColor(data);
+  const alphabet = getLinkerAlphabet(data);
+  const isOwnProfile = data.username === getCurrentUsername();
+  const equipped = Object.fromEntries(LINKER_SLOTS.map(({ key }) => [key, !!getEquippedLinker(data, key)]));
+
+  linkerData = data;
+  linkerAlphabetSelect.value = alphabet;
+  if (!linkerCircle) {
+    linkerCircle = new LinkerCircle(linkerCanvas, { color, name: data.username, alphabet, equipped });
+    whenRuneFontReady().then(() => linkerCircle.draw());
+    updateLinkerAnimation();
+    linkerInspector = new LinkerInspector({
+      layout: document.querySelector('.linker-layout'),
+      canvas: linkerCanvas,
+      list: document.getElementById('linker-slots'),
+      inventory: document.getElementById('linker-inventory'),
+      circle: linkerCircle,
+      getSlotData: (slotKey) => ({
+        items: getLinkerInventory(linkerData, slotKey),
+        equipped: getEquippedLinker(linkerData, slotKey),
+        canEdit: linkerData?.username === getCurrentUsername()
+      }),
+      onEquip: (slotKey, linker) => saveLinkerEquip(slotKey, linker.id),
+      onUnequip: (slotKey) => saveLinkerEquip(slotKey, null)
+    });
+  } else {
+    linkerCircle.equipped = equipped;
+    linkerCircle.alphabet = alphabet;
+    linkerCircle.setName(data.username);
+    // Mentre si sceglie un colore non ancora salvato, il ricaricamento dei dati non lo sovrascrive
+    if (savedLinkerColor === null || linkerColorInput.value === savedLinkerColor) linkerCircle.setColor(color);
+  }
+  if (savedLinkerColor === null || linkerColorInput.value === savedLinkerColor) {
+    linkerColorInput.value = color;
+    linkerColorValue.textContent = color;
+    savedLinkerColor = color;
+  }
+  // Colore e alfabeto si cambiano solo sul proprio profilo
+  linkerColorInput.disabled = !isOwnProfile;
+  linkerAlphabetSelect.disabled = !isOwnProfile;
+  linkerPanel.style.setProperty('--linker-color', linkerColorInput.value);
+
+  const rows = LINKER_SLOTS.map(({ key, label }) => {
+    const linker = getEquippedLinker(data, key);
+    const li = makeElement('li', 'linker-row');
+    li.dataset.slot = key;
+    li.setAttribute('role', 'tab');
+    li.append(
+      makeElement('span', 'stat-label linker-slot', label),
+      makeElement('span', linker ? 'stat-value' : 'stat-value empty', linker ? linker.nome || 'Linker' : 'Vuoto')
+    );
+    return li;
+  });
+  document.getElementById('linker-slots').replaceChildren(...rows);
+  linkerInspector.refresh();
+}
+
+// Equipaggia (o toglie, con id null) un Linker nello slot e aggiorna pannello e cerchio
+async function saveLinkerEquip(slotKey, linkerId) {
+  if (await saveLinkerOption({ equip: { [slotKey]: linkerId } }, 'Impossibile equipaggiare il Linker.')) {
+    linkerData = { ...linkerData, linker: { ...linkerData.linker, equip: { ...linkerData.linker?.equip, [slotKey]: linkerId } } };
+    renderLinker(linkerData);
+  }
+}
+
+// Il cerchio ruota (come tutti i cerchi magici) solo mentre il pannello è visibile
+function updateLinkerAnimation() {
+  if (!linkerCircle) return;
+  if (document.body.classList.contains('show-linker') && !document.hidden) linkerCircle.start();
+  else linkerCircle.stop();
+}
+
+linkerColorInput.addEventListener('input', () => {
+  const color = linkerColorInput.value;
+  linkerColorValue.textContent = color;
+  linkerPanel.style.setProperty('--linker-color', color);
+  linkerCircle?.setColor(color);
+});
+
+// Salva una scelta del cerchio (colore o alfabeto) sul profilo
+async function saveLinkerOption(fields, errorMessage) {
+  const errorEl = document.getElementById('linker-error');
+  errorEl.textContent = '';
+  try {
+    await savePlayerData(getCurrentUsername(), { linker: fields });
+    playSfx('tick', { value: 0.7 });
+    return true;
+  } catch (error) {
+    console.error('❌ Errore nel salvataggio del cerchio dei Linker:', error);
+    errorEl.textContent = errorMessage;
+    playSfx('error');
+    shake(errorEl);
+    return false;
+  }
+}
+
+// 'change' arriva quando si conferma il colore (chiusura del selettore): solo allora si salva
+linkerColorInput.addEventListener('change', async () => {
+  const color = linkerColorInput.value;
+  if (color === savedLinkerColor) return;
+  if (await saveLinkerOption({ colore: color }, 'Impossibile salvare il colore del cerchio.')) savedLinkerColor = color;
+});
+
+// Il nome si riscrive subito con le nuove rune, poi la scelta si salva
+linkerAlphabetSelect.addEventListener('change', () => {
+  linkerCircle?.setAlphabet(linkerAlphabetSelect.value);
+  saveLinkerOption({ alfabeto: linkerAlphabetSelect.value }, 'Impossibile salvare l\'alfabeto runico.');
+});
+
 renderPlayerInfo();
 
 // Con G/N cambia il tema: i grafici vanno ridisegnati con i nuovi colori
@@ -329,8 +469,22 @@ document.getElementById('close-stats-btn').onclick = () => {
   document.body.classList.remove('show-stats');
   playSfx('slide', { direction: 1 });
 };
+document.getElementById('open-linker-btn').onclick = () => {
+  document.body.classList.add('show-linker');
+  playSfx('slide', { direction: 1 });
+  updateLinkerAnimation();
+};
+document.getElementById('close-linker-btn').onclick = () => {
+  document.body.classList.remove('show-linker');
+  // Si torna alle info: l'inventario si chiude dopo lo scorrimento della vista
+  setTimeout(() => linkerInspector?.closeInstantly(), 900);
+  playSfx('slide', { direction: -1 });
+  // Si ferma dopo lo scorrimento della vista, così il cerchio non si blocca mentre esce
+  setTimeout(updateLinkerAnimation, 900);
+};
 
 // Aggiorna dati e grafici quando la pagina torna visibile
 document.addEventListener('visibilitychange', () => {
+  updateLinkerAnimation();
   if (!document.hidden) renderPlayerInfo();
 });

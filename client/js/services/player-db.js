@@ -23,6 +23,7 @@ export function createDefaultPlayer(username, password = '') {
     partite: 0,
     magie: [],
     spellbook: {},       // {'1': {elemento, proiezioni: [...], savedAt}, ...}: cerchi salvati negli slot 1-9
+    linker: {},          // {colore: '#rrggbb', alfabeto, equip: {core, matrix, relay, conduit, apex}}: cerchio personale e Linker
     predisposizione: {}
   };
 }

@@ -165,3 +165,19 @@ button[type="submit"]::after,
   width: 2px;
   height: 100%;
 }
+/* Linguetta sul bordo sinistro (Linker in Info Giocatore): specchiata, angoli tagliati compresi */
+.slide-btn.left {
+  right: auto;
+  left: 0;
+  border-right: 1px solid var(--edge);
+  border-left: none;
+  background:
+    linear-gradient(to bottom left, transparent calc(50% - 0.75px), var(--edge) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)) top right / var(--cut) var(--cut) no-repeat,
+    linear-gradient(to bottom left, transparent calc(50% - 0.75px), var(--edge) calc(50% - 0.75px) calc(50% + 0.75px), transparent calc(50% + 0.75px)) bottom left / var(--cut) var(--cut) no-repeat,
+    var(--fill);
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, var(--cut) 100%, 0 calc(100% - var(--cut)));
+}
+.slide-btn.left::after {
+  right: auto;
+  left: 0;
+}

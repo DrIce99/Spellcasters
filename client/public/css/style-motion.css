@@ -110,6 +110,9 @@ html.theme-switching * {
 @keyframes slide-in-right {
   from { opacity: 0; translate: 100% 0; }
 }
+@keyframes slide-in-from-left {
+  from { opacity: 0; translate: -100% 0; }
+}
 @keyframes title-in {
   from { opacity: 0; letter-spacing: 0.55em; filter: blur(10px); }
 }
@@ -175,6 +178,9 @@ html.theme-switching * {
 }
 .slide-btn {
   animation: slide-in-right 0.6s var(--ease-out) 0.55s backwards;
+}
+.slide-btn.left {
+  animation-name: slide-in-from-left;
 }
 #version,
 .credits {
@@ -338,20 +344,23 @@ html body #main-view-wrapper {
 #arena-container,
 #leaderboard-panel,
 #player-info-container,
-#stats-panel {
+#stats-panel,
+#linker-panel {
   transition: opacity 0.6s ease, scale 0.85s var(--ease-in-out), filter 0.6s ease;
 }
 body.show-leaderboard #arena-container,
 body:not(.show-leaderboard) #leaderboard-panel,
-body.show-stats #player-info-container,
-body:not(.show-stats) #stats-panel {
+body:is(.show-stats, .show-linker) #player-info-container,
+body:not(.show-stats) #stats-panel,
+body:not(.show-linker) #linker-panel {
   opacity: 0;
   scale: 0.92;
   filter: blur(3px);
 }
 
 #leaderboard-panel > *,
-#stats-panel > * {
+#stats-panel > *,
+#linker-panel > * {
   transition: opacity 0.5s ease, translate 0.6s var(--ease-out);
 }
 body:not(.show-leaderboard) #leaderboard-panel > *,
@@ -359,14 +368,23 @@ body:not(.show-stats) #stats-panel > * {
   opacity: 0;
   translate: 60px 0;
 }
+/* Il pannello dei Linker entra da sinistra: i contenuti arrivano dal lato opposto */
+body:not(.show-linker) #linker-panel > * {
+  opacity: 0;
+  translate: -60px 0;
+}
 body.show-leaderboard #leaderboard-panel > *:nth-child(2),
-body.show-stats #stats-panel > *:nth-child(1) { transition-delay: 0.3s; }
+body.show-stats #stats-panel > *:nth-child(1),
+body.show-linker #linker-panel > *:nth-child(1) { transition-delay: 0.3s; }
 body.show-leaderboard #leaderboard-panel > *:nth-child(3),
-body.show-stats #stats-panel > *:nth-child(2) { transition-delay: 0.38s; }
+body.show-stats #stats-panel > *:nth-child(2),
+body.show-linker #linker-panel > *:nth-child(2) { transition-delay: 0.38s; }
 body.show-leaderboard #leaderboard-panel > *:nth-child(4),
-body.show-stats #stats-panel > *:nth-child(3) { transition-delay: 0.46s; }
+body.show-stats #stats-panel > *:nth-child(3),
+body.show-linker #linker-panel > *:nth-child(3) { transition-delay: 0.46s; }
 body.show-leaderboard #leaderboard-panel > *:nth-child(5),
-body.show-stats #stats-panel > *:nth-child(4) { transition-delay: 0.54s; }
+body.show-stats #stats-panel > *:nth-child(4),
+body.show-linker #linker-panel > *:nth-child(4) { transition-delay: 0.54s; }
 
 /* Righe della classifica (--i impostato da arena.page.js) */
 .leaderboard-list li {

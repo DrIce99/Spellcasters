@@ -4,7 +4,7 @@ A simple web app game with *magic*
 - [Per lo sviluppatore](#per-lo-sviluppatore)
 - [Game design](#game-design)
   - [Comandi](#comandi) · [Sistema di magia](#sistema-di-magia) · [Elementi](#elementi) · [Proiezioni](#proiezioni)
-  - [Interazioni tra magie](#interazioni-tra-magie) · [Mana](#mana) · [Progressione](#progressione) · [Roadmap](#roadmap)
+  - [Interazioni tra magie](#interazioni-tra-magie) · [Mana](#mana) · [Progressione](#progressione) · [Linker](#linker) · [Roadmap](#roadmap)
 
 ---
 
@@ -95,6 +95,17 @@ quadrato che ci entra) resta nel messaggio solo per i client non aggiornati.
   (il server lo inoltra così com'è, quindi non serve aggiornarlo): l'avversario lo registra con `recordOpponentSpell`.
   La modalità salvataggio inverte i colori del puntatore con `ctx.filter = 'invert(1)'` in `drawVirtualMouse`,
   quindi vale per qualsiasi aspetto del puntatore.
+- **Linker**: slot e colore in `client/js/game/linker.js`, disegno del cerchio in `client/js/ui/linker-circle.js`,
+  grafica degli slot in `client/js/ui/linker-art.js`: gli SVG (neri, con forme bianche che "bucano" il nero) diventano una
+  maschera di trasparenza colorata al volo; i tratti vengono ingrossati perché a meno di 100 px quelli da 1-4 unità sparirebbero.
+  Un nuovo SVG va disegnato allo stesso modo (viewBox -400..400, anello esterno a raggio ~356).
+  Traslitterazione in rune in `client/js/ui/runes.js` con il pacchetto npm **riimut** (font Noto Sans Runic da Google Fonts,
+  Segoe UI Historic come riserva). riimut su npm (0.9.1) non ha ancora le rune staveless, documentate nel suo README: la
+  tabella è presa da riimut-rs (stesso autore, MIT) in `client/js/ui/staveless-futhark.js`. riimut è CommonJS: va importato
+  con `import * as` (vedi il commento in `runes.js`), altrimenti con Vite è `undefined`.
+  Selezione, animazione (tecnica FLIP con la Web Animations API) e inventario in `client/js/ui/linker-inspector.js`.
+  Su Firestore è il campo `linker` del giocatore: `{ colore: '#rrggbb', alfabeto, inventario: [{ id, slot, ... }],
+  equip: { core: id, matrix: id, relay: id, conduit: id, apex: id } }` (forma dell'inventario provvisoria).
 - **Impostazioni** (salvate in `localStorage`): numero di particelle, volume, tema, indicatore della carica selezionata
   (`chargeIndicator`: nessuno / particelle / mirino / entrambi). Il gioco le legge all'apertura della pagina.
 
@@ -272,6 +283,28 @@ Formule in `client/js/game/player-stats.js`.
   quante più volte vengono disegnati (dal 40% fino al 50%; contatore `segniDisegnati` su Firestore).
 - Bonus danno elementale, tasso CRIT e DMG CRIT sono mostrati ma per ora restano a 0.
 - In futuro: matchmaking bilanciato in base al livello.
+
+### Linker
+
+Artefatti (come quelli di Genshin) che si equipaggiano nel **cerchio personale** del giocatore, visibile nella pagina
+Info Giocatore (linguetta **Linker** a sinistra). 🔜 Come si ottengono, rarità, statistiche principali e secondarie.
+
+- **5 slot**, uno per tipo di Linker: **Core**, **Matrix**, **Relay**, **Conduit**, **Apex**. Stanno dove i cerchi di gioco
+  hanno le cariche, collegati da un pentagono; ogni slot è il cerchio magico del suo Linker (grafica in
+  `client/public/img/<Nome>.svg`), nel colore del cerchio, con la parte superiore rivolta verso l'esterno, e un po' spento
+  finché lo slot è vuoto.
+- **Selezione e inventario** (come gli artefatti di Genshin Impact): cliccando uno slot sul cerchio o nella lista, la lista
+  si restringe, le voci scendono a "trenino" e si mettono in fila sotto il cerchio (che si sposta a sinistra) e a destra
+  compare l'inventario di quello slot: griglia dei Linker posseduti (ordinabile per rarità o livello) e dettaglio di quello
+  scelto (statistiche, Equipaggia/Sostituisci/Rimuovi). Le voci sotto il cerchio fanno da schede per cambiare slot;
+  ✕ o Esc chiudono con l'animazione al contrario.
+- Il cerchio ruota come tutti i cerchi magici e ha un **colore scelto dal giocatore** (salvato sul profilo).
+- Al centro c'è il **nome del giocatore in rune** su un anello racchiuso tra due cerchi (fascia alta il doppio del font).
+  Il giocatore sceglie l'alfabeto: **Elder Futhark**, **Younger Futhark**, **Short-twig Futhark**, **Staveless (Hälsinge)
+  Futhark**, **Medieval Runerow**, **Anglo-Saxon Futhorc**. Le rune sono distribuite uniformemente su tutto l'anello (anche
+  tra l'ultima e la prima c'è la stessa distanza), con almeno due altezze del font tra l'una e l'altra: il raggio cresce con
+  la lunghezza del nome (oltre un certo limite il font si rimpicciolisce per restare dentro il cerchio). La croce runica ᛭
+  in alto segna l'inizio del nome. Le cifre si scrivono in lettere (es. "9" → "nove"), i simboli diventano il separatore.
 
 ### Roadmap
 
