@@ -16,9 +16,17 @@ import {
 import { spawnRing, spawnCircleCollapse, spawnStrokeFade, drawFx, easeOutBack, easeOutCubic } from './fx.js';
 import { playSfx } from '../ui/sfx.js';
 import { matchesAction } from '../ui/keybindings.js';
+import {
+  loadSpellbook, getSpell, isSaveMode, toggleSaveMode, slotFromKeyEvent, isCircleSavable, saveCircleToSlot,
+  recordOpponentSpell
+} from './spellbook.js';
+import {
+  configureSpellbookOverlay, showSpellbookOverlay, hideSpellbookOverlay, updateSpellbookMode, refreshSpellbookSlot,
+  refreshOpponentSpellbook, showSpellbookToast
+} from '../ui/spellbook-overlay.js';
 import { showBanner, replayClass } from '../ui/motion.js';
 import {
-  statusEffectManager, applyElementalHit, applyParalysis, updateStatusEffects, createElementalDebuffParticles
+  statusEffectManager, applyParalysis, updateStatusEffects, createElementalDebuffParticles
 } from "./status-effects.js";
 import { audioManager } from './audio-manager.js';
 import {
@@ -112,6 +120,9 @@ const LASER_HIT_RADIUS = 18;            // distanza dal raggio entro cui si vien
 const LASER_CANCEL_RADIUS = 20;         // distanza dal raggio entro cui il tasto destro lo annulla
 const LASER_DAMAGE_TICK_MS = 500;
 
+// Contatori che una magia fa crescere (affinità con l'elemento, uso della proiezione): tutti, salvo le magie dello spellbook
+const FULL_PROGRESS = Object.freeze({ element: true, projection: true });
+
 // === STATO DI GIOCO ===
 let casting = false;
 let points = [];               // punti del simbolo che si sta disegnando (tasto Z)
@@ -128,8 +139,10 @@ let lastFrameTime = performance.now();
 let frameScale = 1;
 let frameMs = FRAME_MS;
 
-// Cerchio magico: { x, y, radius, thickness, elemento, projections: [], selected }
+// Cerchio magico: { x, y, radius, thickness, elemento, projections: [], selected, spellbookElement, spellbookCharges: [] }
 // selected = indice della carica che partirà al prossimo lancio (la rotella del mouse la cambia)
+// spellbookElement / spellbookCharges[i]: l'elemento / la carica i-esima vengono dallo spellbook, non da un disegno.
+// Ciò che arriva dallo spellbook non fa crescere affinità né contatori delle proiezioni (vedi spellProgress).
 // L'elemento appartiene al cerchio: quando il cerchio sparisce sparisce anche l'infusione,
 // così un proiettile disegnato dopo è sempre neutro.
 let magicCircle = null;
@@ -171,6 +184,7 @@ let collisionSparks = [];
 
 let pvpManager = null;
 let gameMode = 'training'; // 'training' | 'pvp'
+const isLab = document.body.dataset.page === 'lab'; // i cerchi si salvano nello spellbook solo in laboratorio
 let playerLife = 100;      // vita fuori dal PvP
 
 // === PROGRESSIONE (caricata da Firebase) ===
@@ -214,9 +228,16 @@ function initializeGameMode() {
     pvpManager.onOpponentProjectile = receiveOpponentProjectile;
     pvpManager.onOpponentElement = receiveOpponentElement;
     pvpManager.onOpponentLaserCast = receiveOpponentLaserCast;
+    pvpManager.onOpponentSpellbook = (slot, spell) => {
+      if (recordOpponentSpell(slot, spell)) refreshOpponentSpellbook();
+    };
     pvpManager.shaderFillsAreas = areaShader.ok;
     console.log('🎮 Modalità PvP inizializzata');
   }
+  configureSpellbookOverlay({
+    canSave: isLab,
+    opponentName: pvpManager ? (pvpManager.opponentData?.username || 'Avversario') : null
+  });
   registerPlayerStatusCallbacks();
 }
 
@@ -263,6 +284,7 @@ async function loadPlayerProgress() {
     playerLevel = player.livello || 1;
     playerExp = player.esperienza || 0;
   }
+  loadSpellbook(player?.spellbook);
   // Mana, vita, ATK e difese dipendono dai punti abilità e dall'affinità, non dal livello
   playerStats = computePlayerStats(player || {});
   setManaValues({ max: playerStats.mp, regen: playerStats.manaRegenPerFrame });
@@ -416,7 +438,7 @@ canvas.addEventListener("mouseup", (e) => {
 
   // Click su un cerchio con solo l'elemento: mostra l'effetto dell'elemento
   if (wasOnCircle && magicCircle && magicCircle.elemento && canCast()) {
-    castElementEffect(magicCircle.elemento, magicCircle);
+    castElementEffect(magicCircle.elemento, magicCircle, { countAffinity: !magicCircle.spellbookElement });
   }
 });
 
@@ -449,12 +471,7 @@ window.addEventListener("keydown", (e) => {
     points = [];
   }
 
-  // 🧪 Test degli effetti di stato (solo fuori dal PvP)
-  if (!pvpManager) {
-    const testEffects = { '1': 'fuoco', '2': 'acqua', '3': 'aria', '4': 'terra' };
-    if (testEffects[e.key]) applyElementalHit(testEffects[e.key], 'player');
-    if (e.key === '5') applyParalysis('player'); // ⚡ paralisi delle aree di fulmine
-  }
+  handleSpellbookKeydown(e);
 });
 
 window.addEventListener("keyup", (e) => {
@@ -467,7 +484,77 @@ window.addEventListener("keyup", (e) => {
   if (matchesAction(e, 'cancel') && isPointerLocked() && canAct()) {
     cancelAtVirtualMouse();
   }
+  if (matchesAction(e, 'spellbook')) hideSpellbookOverlay();
 });
+
+
+// ============================================================
+// SPELLBOOK (si salva in laboratorio, si evoca ovunque)
+// ============================================================
+
+// Tab (tenuto): mostra gli slot · R (laboratorio): entra/esce dalla modalità salvataggio ·
+// 1-9: in modalità salvataggio salva nello slot il cerchio magico sotto il mouse, altrimenti evoca il cerchio salvato
+function handleSpellbookKeydown(e) {
+  if (e.ctrlKey || e.altKey || e.metaKey) return; // Ctrl+1, Ctrl+R, Ctrl+Tab... sono scorciatoie del browser
+  if (matchesAction(e, 'spellbook')) {
+    e.preventDefault(); // Tab non deve spostare il focus fuori dal canvas
+    showSpellbookOverlay();
+    return;
+  }
+  if (e.repeat) return; // tenendo premuto R la modalità non deve accendersi e spegnersi di continuo
+  if (isLab && matchesAction(e, 'saveMode')) {
+    const on = toggleSaveMode();
+    playSfx('toggle', { on });
+    updateSpellbookMode();
+    return;
+  }
+  const slot = slotFromKeyEvent(e);
+  if (!slot) return;
+  if (isLab && isSaveMode()) saveMagicCircle(slot);
+  else summonSpellbookCircle(slot);
+}
+
+// Evoca sotto il mouse il cerchio salvato nello slot, con elemento e cariche già incisi
+function summonSpellbookCircle(slot) {
+  const spell = getSpell(slot);
+  if (!spell) {
+    playSfx('fizzle');
+    showSpellbookToast(`Lo slot ${slot} è vuoto`, 'error');
+    return;
+  }
+  if (!canAct()) return;
+  createMagicCircle(spell, slot);
+  const color = circleColorOf(magicCircle);
+  magicCircle.flashAt = performance.now();
+  spawnRing(magicCircle.x, magicCircle.y, { color, from: magicCircle.radius * 0.3, to: magicCircle.radius + 80, duration: 600, width: 3 });
+  if (spell.elemento) audioManager.playElementSpellSound(spell.elemento, 0.6);
+}
+
+function saveMagicCircle(slot) {
+  const mouse = virtualMouse;
+  const onCircle = magicCircle && Math.hypot(mouse.x - magicCircle.x, mouse.y - magicCircle.y) <= magicCircle.radius + 20;
+  if (!onCircle) {
+    playSfx('fizzle');
+    showSpellbookToast('Punta un cerchio magico per salvarlo', 'error');
+    return;
+  }
+  if (!isCircleSavable(magicCircle)) {
+    playSfx('fizzle');
+    showSpellbookToast('Il cerchio è vuoto: incidi un elemento o una carica', 'error');
+    return;
+  }
+
+  const color = circleColorOf(magicCircle);
+  engraveCircle(color);
+  spawnRing(magicCircle.x, magicCircle.y, { color, from: magicCircle.radius + 30, to: 10, duration: 420, width: 2 });
+  playSfx('success');
+  showSpellbookToast(`Cerchio salvato nello slot ${slot}`);
+  saveCircleToSlot(slot, magicCircle).catch((error) => {
+    console.error('❌ Salvataggio dello spellbook non riuscito:', error);
+    showSpellbookToast(`Slot ${slot}: salvataggio online non riuscito`, 'error');
+  });
+  refreshSpellbookSlot(slot);
+}
 
 
 // ============================================================
@@ -509,6 +596,7 @@ function recognizeSpell(stroke) {
   if (magicCircle) {
     if (name === "proiettile" || name === "spaziale" || name === "laser") {
       magicCircle.projections.push(name);
+      magicCircle.spellbookCharges.push(false);
       magicCircle.selected = magicCircle.projections.length - 1; // l'ultima incisa è pronta al lancio
       engraveCircle(circleColorOf(magicCircle));
       playSfx('engrave', { pitch: 1 + 0.12 * Math.min(6, magicCircle.projections.length - 1) });
@@ -516,6 +604,7 @@ function recognizeSpell(stroke) {
     }
     if (isElement(name)) {
       magicCircle.elemento = name;
+      magicCircle.spellbookElement = false;
       incrementaAffinitaBuffer(name);
       const color = getElementColor(name);
       engraveCircle(color);
@@ -566,9 +655,9 @@ function fizzleStroke(stroke) {
 
 // Elemento evocato a vuoto (o click su un cerchio con solo l'elemento): particelle e suono,
 // visibili e udibili anche dall'avversario
-function castElementEffect(element, position) {
+function castElementEffect(element, position, { countAffinity = true } = {}) {
   showElementEffect(element, position);
-  incrementaAffinitaBuffer(element);
+  if (countAffinity) incrementaAffinitaBuffer(element);
   audioManager.playElementSpellSound(element);
   if (pvpManager && pvpManager.isActive()) {
     pvpManager.sendSpellCast({ type: 'elemento', element, position: { x: position.x, y: position.y } });
@@ -586,16 +675,22 @@ function receiveOpponentElement(data) {
 // CERCHIO MAGICO
 // ============================================================
 
-function createMagicCircle() {
+// spell: cerchio dello spellbook ({ elemento, proiezioni }) evocato dallo slot; senza, il cerchio nasce vuoto (disegnato a mano)
+function createMagicCircle(spell = null, slot = null) {
   if (magicCircle) spawnCircleCollapse(magicCircle, circleColorOf(magicCircle), circleRotation);
+  const projections = spell ? [...spell.proiezioni] : [];
   magicCircle = {
     x: virtualMouse.x,
     y: virtualMouse.y,
     radius: CIRCLE_RADIUS,
     thickness: 3,
-    elemento: null,
-    projections: [],
-    selected: 0,
+    elemento: spell?.elemento || null,
+    projections,
+    selected: Math.max(0, projections.length - 1),
+    spellbookElement: !!spell?.elemento,
+    spellbookCharges: projections.map(() => !!spell),
+    // Nel PvP viaggia con il cerchio: l'avversario vede quello slot nel suo overlay dello spellbook
+    spellbook: spell ? { slot, elemento: spell.elemento, proiezioni: [...spell.proiezioni] } : null,
     bornAt: performance.now(), // animazione di comparsa (solo locale, non viene inviata all'avversario)
     flashAt: 0
   };
@@ -637,6 +732,7 @@ function peekProjection() {
 // Dopo il lancio la selezione torna sull'ultima carica, come prima della rotella.
 function consumeCharge() {
   magicCircle.projections.splice(magicCircle.selected, 1);
+  magicCircle.spellbookCharges.splice(magicCircle.selected, 1);
   magicCircle.selected = magicCircle.projections.length - 1;
   if (magicCircle.projections.length === 0) {
     removeMagicCircle();
@@ -668,20 +764,31 @@ function canCast() {
   return canAct() && !getManaValues().inBurnout;
 }
 
+// Cosa fa crescere la carica selezionata: l'affinità con l'elemento e il contatore della proiezione
+// contano solo se vengono da un disegno, non dallo spellbook
+function spellProgress() {
+  return {
+    element: !magicCircle.spellbookElement,
+    projection: !magicCircle.spellbookCharges[magicCircle.selected]
+  };
+}
+
 function launchFromCircle(start, end) {
   const tipo = peekProjection();
   if (!tipo || tipo === 'spaziale') return;
+  const progress = spellProgress();
   // La carica si consuma solo se il lancio riesce (trascinamento abbastanza lungo e mana sufficiente)
   const launched = tipo === 'laser'
-    ? launchLaser(start, end, { element: magicCircle.elemento })
-    : launchProjectile(start, end, { element: magicCircle.elemento, tipo });
+    ? launchLaser(start, end, { element: magicCircle.elemento, progress })
+    : launchProjectile(start, end, { element: magicCircle.elemento, tipo, progress });
   if (launched) consumeCharge();
 }
 
 function castSpazialeFromCircle(polygon) {
   polygon.push({ ...polygon[0] }); // chiude il poligono
-  activateSpazialeArea(polygon, spazialePolygonColor, magicCircle.elemento);
-  incrementaProiezioneUsataBuffer("spaziale");
+  const progress = spellProgress();
+  activateSpazialeArea(polygon, spazialePolygonColor, magicCircle.elemento, { progress });
+  if (progress.projection) incrementaProiezioneUsataBuffer("spaziale");
   consumeCharge();
 }
 
@@ -885,7 +992,8 @@ function drawMagicCircleDragTrail() {
  * Lancia un proiettile da start verso end.
  * @returns {boolean} true se il proiettile è partito (serve per decidere se consumare la carica)
  */
-function launchProjectile(start, end, { element = null, tipo = "proiettile" } = {}) {
+// progress: { element, projection } - quali contatori aumentare (false per le magie dello spellbook)
+function launchProjectile(start, end, { element = null, tipo = "proiettile", progress = FULL_PROGRESS } = {}) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const dist = Math.hypot(dx, dy);
@@ -911,7 +1019,7 @@ function launchProjectile(start, end, { element = null, tipo = "proiettile" } = 
     });
   }
 
-  incrementaProiezioneUsataBuffer(tipo);
+  if (progress.projection) incrementaProiezioneUsataBuffer(tipo);
   addExp(2);
   audioManager.playProjectileSound(element);
   return true;
@@ -1085,7 +1193,7 @@ function bounceOffPolygon(p, polygon) {
  * @param {boolean} simple laser lanciato a vuoto: si annulla con il tasto destro anche lontano dal raggio
  * @returns {boolean} true se il laser è partito
  */
-function launchLaser(start, end, { element = null, simple = false } = {}) {
+function launchLaser(start, end, { element = null, simple = false, progress = FULL_PROGRESS } = {}) {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
   const dist = Math.hypot(dx, dy);
@@ -1097,19 +1205,20 @@ function launchLaser(start, end, { element = null, simple = false } = {}) {
     origin: { x: start.x, y: start.y },
     dir: { x: dx / dist, y: dy / dist },
     element,
-    simple
+    simple,
+    progress
   });
   sendLaserUpdate(laser);
   spawnLaserCastParticles(laser, element ? getElementColor(element) : NEUTRAL_COLOR);
 
-  incrementaProiezioneUsataBuffer('laser');
-  if (element) incrementaAffinitaBuffer(element);
+  if (progress.projection) incrementaProiezioneUsataBuffer('laser');
+  if (element && progress.element) incrementaAffinitaBuffer(element);
   addExp(2);
   return true;
 }
 
 // Registra un laser del giocatore locale (lanciato da lui, oppure ceduto dall'avversario)
-function registerLocalLaser({ id, origin, dir, element = null, variant = null, expiresAt = null, simple = false }) {
+function registerLocalLaser({ id, origin, dir, element = null, variant = null, expiresAt = null, simple = false, progress = FULL_PROGRESS }) {
   const laser = {
     id,
     origin,
@@ -1118,6 +1227,7 @@ function registerLocalLaser({ id, origin, dir, element = null, variant = null, e
     variant,
     expiresAt,
     simple,
+    progress, // anche mentre resta acceso, un laser dello spellbook non fa crescere affinità e contatori
     path: [],
     manaTimer: 0,
     affinityTimer: 0
@@ -1266,8 +1376,8 @@ function updateLasers() {
     laser.affinityTimer += frameMs;
     if (laser.affinityTimer >= 1000) {
       laser.affinityTimer -= 1000;
-      incrementaProiezioneUsataBuffer('laser', 0.01);
-      if (laser.element) incrementaAffinitaBuffer(laser.element, LASER_MANA_PER_TICK);
+      if (laser.progress.projection) incrementaProiezioneUsataBuffer('laser', 0.01);
+      if (laser.element && laser.progress.element) incrementaAffinitaBuffer(laser.element, LASER_MANA_PER_TICK);
     }
   }
 }
@@ -1479,7 +1589,7 @@ function getAreaDamagePerTick(polygon, element) {
 }
 
 // Registra un'area del giocatore locale (lanciata da lui, oppure ceduta dall'avversario)
-function registerLocalArea({ id, polygon, color, element, variant = null, expiresAt = null }) {
+function registerLocalArea({ id, polygon, color, element, variant = null, expiresAt = null, progress = FULL_PROGRESS }) {
   const size = polygonArea(polygon);
   permanentSpazialeAreas.push({
     id,
@@ -1490,17 +1600,18 @@ function registerLocalArea({ id, polygon, color, element, variant = null, expire
     variant,
     expiresAt,
     manaDrain: Math.max(0.01, size / 10000 * 0.01), // mana per frame
-    affinityTimer: 0
+    affinityTimer: 0,
+    progress // un'area dello spellbook non fa crescere affinità e contatori finché resta attiva
   });
   return size;
 }
 
-function activateSpazialeArea(polygon, color, element) {
+function activateSpazialeArea(polygon, color, element, { progress = FULL_PROGRESS } = {}) {
   const areaId = `area_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   const areaElement = element || 'spaziale';
 
-  const size = registerLocalArea({ id: areaId, polygon, color, element: areaElement });
-  if (element) incrementaAffinitaBuffer(element);
+  const size = registerLocalArea({ id: areaId, polygon, color, element: areaElement, progress });
+  if (element && progress.element) incrementaAffinitaBuffer(element);
   addExp(Math.floor(size / 1000));
 
   if (pvpManager && pvpManager.isActive()) {
@@ -1572,8 +1683,8 @@ function updateSpazialeAreas() {
     area.affinityTimer += deltaTime;
     if (area.affinityTimer >= 1) {
       area.affinityTimer -= 1;
-      incrementaProiezioneUsataBuffer("spaziale", 0.5 * (area.size / 700) * 0.01);
-      if (isElement(area.element)) incrementaAffinitaBuffer(area.element, area.manaDrain);
+      if (area.progress.projection) incrementaProiezioneUsataBuffer("spaziale", 0.5 * (area.size / 700) * 0.01);
+      if (isElement(area.element) && area.progress.element) incrementaAffinitaBuffer(area.element, area.manaDrain);
     }
   }
 
@@ -2522,13 +2633,18 @@ function drawReticle(x, y, color, alpha = 1) {
 }
 
 function drawVirtualMouse() {
+  ctx.save();
+  // Modalità salvataggio dello spellbook: il puntatore ha i colori invertiti.
+  // Il filtro vale per tutto ciò che viene disegnato qui, qualunque sia l'aspetto del puntatore.
+  if (isSaveMode()) ctx.filter = 'invert(1)';
   if (playerBody.attached) {
     drawReticle(virtualMouse.x, virtualMouse.y, "#00e0ff");
-    return;
+  } else {
+    // Paralizzato: il corpo è fermo, il cursore "virtuale" serve solo a disegnare
+    drawReticle(playerBody.x, playerBody.y, getElementColor('fulmine'));
+    drawReticle(virtualMouse.x, virtualMouse.y, "#00e0ff", 0.45);
   }
-  // Paralizzato: il corpo è fermo, il cursore "virtuale" serve solo a disegnare
-  drawReticle(playerBody.x, playerBody.y, getElementColor('fulmine'));
-  drawReticle(virtualMouse.x, virtualMouse.y, "#00e0ff", 0.45);
+  ctx.restore();
 }
 
 // Chiamata da collision-system.js quando due entità si scontrano

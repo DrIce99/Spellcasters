@@ -6,12 +6,14 @@ const STORAGE_KEY = 'keyBindings';
 export const KEY_ACTIONS = {
   cast: { label: 'Inizia/disegna spell', default: 'z' },
   cancel: { label: 'Annulla cerchio magico / magia attiva (oltre a RMB)', default: 'x' },
+  saveMode: { label: 'Modalità salvataggio magie (laboratorio)', default: 'r' },
+  spellbook: { label: 'Mostra lo spellbook (tenendo premuto)', default: 'Tab' },
   themeDay: { label: 'Tema giorno', default: 'ArrowUp' },
   themeNight: { label: 'Tema notte', default: 'ArrowDown' }
 };
 
-// Tasti che non si possono assegnare: Esc chiude i menu ed esce dal gioco
-const RESERVED_KEYS = ['Escape'];
+// Tasti che non si possono assegnare: Esc chiude i menu ed esce dal gioco, 1-9 sono gli slot dello spellbook
+const RESERVED_KEYS = ['Escape', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
 const KEY_LABELS = {
   ' ': 'Spazio',

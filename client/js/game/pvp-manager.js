@@ -62,6 +62,7 @@ export class PvPManager {
         this.onOpponentProjectile = null; // crea il proiettile dell'avversario (con particelle e suono)
         this.onOpponentElement = null;    // elemento evocato a vuoto dall'avversario
         this.onOpponentLaserCast = null;  // nuovo laser dell'avversario (particelle e suono)
+        this.onOpponentSpellbook = null;  // (slot, magia) l'avversario ha evocato un cerchio dal suo spellbook
         this.shaderFillsAreas = false; // true = il riempimento delle aree lo disegna lo shader WebGL
 
         this.lastUpdateSent = 0;
@@ -226,6 +227,11 @@ export class PvPManager {
                 break;
             case 'opponentMagicCircle':
                 this.opponent.magicCircle = data.magicCircle || null;
+                // Cerchio evocato dallo spellbook: lo slot (con la magia com'era salvata) diventa visibile
+                if (data.magicCircle?.spellbook) {
+                    const { slot, elemento, proiezioni } = data.magicCircle.spellbook;
+                    this.onOpponentSpellbook?.(slot, { elemento, proiezioni });
+                }
                 break;
             case 'opponentSpell':
                 this.handleOpponentSpell(data);
@@ -740,7 +746,9 @@ export class PvPManager {
                 y: magicCircle.y,
                 radius: magicCircle.radius,
                 element: magicCircle.elemento,
-                projections: magicCircle.projections
+                projections: magicCircle.projections,
+                // Solo per i cerchi dello spellbook: slot e magia salvata (il server inoltra il cerchio così com'è)
+                spellbook: magicCircle.spellbook || undefined
             } : null
         });
     }
@@ -789,7 +797,8 @@ export class PvPManager {
             y: magicCircle.y,
             radius: magicCircle.radius,
             element: magicCircle.elemento,
-            projections: magicCircle.projections.join(',')
+            projections: magicCircle.projections.join(','),
+            spellbookSlot: magicCircle.spellbook?.slot ?? null
         } : null;
 
         if (JSON.stringify(currentState) !== JSON.stringify(this.lastMagicCircleState)) {

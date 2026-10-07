@@ -30,6 +30,20 @@ export function setPageFavicon({ element = null, charged = false } = {}) {
 }
 
 export function renderCircleIcon(element, charged) {
+  const icon = renderCircleImage({ element, projections: charged ? PROJECTIONS : [], size: ICON_SIZE, background: BACKGROUND });
+  return icon.toDataURL('image/png');
+}
+
+/**
+ * Disegna un cerchio magico statico (icona della scheda, anteprime dello spellbook).
+ * @param {object} options
+ * @param {string|null} [options.element] elemento infuso (null = cerchio vuoto)
+ * @param {string[]} [options.projections] cariche, disegnate dentro il cerchio
+ * @param {number} [options.size] lato in pixel del canvas restituito
+ * @param {string|null} [options.background] fondo rotondo (null = trasparente)
+ * @returns {HTMLCanvasElement}
+ */
+export function renderCircleImage({ element = null, projections = [], size = ICON_SIZE, background = null } = {}) {
   const big = document.createElement('canvas');
   big.width = big.height = DRAW_SIZE;
   const ctx = big.getContext('2d');
@@ -38,31 +52,33 @@ export function renderCircleIcon(element, charged) {
   const c = DRAW_SIZE / 2;
   const color = element ? getElementColor(element) : EMPTY_CIRCLE_COLOR;
   // Fondo scuro rotondo: il cerchio si legge sia sulle schede chiare che su quelle scure
-  ctx.beginPath();
-  ctx.arc(c, c, c, 0, Math.PI * 2);
-  ctx.fillStyle = BACKGROUND;
-  ctx.fill();
+  if (background) {
+    ctx.beginPath();
+    ctx.arc(c, c, c, 0, Math.PI * 2);
+    ctx.fillStyle = background;
+    ctx.fill();
+  }
 
-  // Il cerchio riempie l'icona (l'anello esterno ha raggio RADIUS + 20)
+  // Il cerchio riempie l'immagine (l'anello esterno ha raggio RADIUS + 20)
   const scale = 1.18;
   ctx.save();
   ctx.translate(c, c);
   ctx.scale(scale, scale);
   ctx.translate(-c, -c);
-  drawGameCircle(ctx, c, c, color, element, charged);
+  drawGameCircle(ctx, c, c, color, element, projections);
   ctx.restore();
 
-  const icon = document.createElement('canvas');
-  icon.width = icon.height = ICON_SIZE;
-  const iconCtx = icon.getContext('2d');
-  iconCtx.imageSmoothingEnabled = true;
-  iconCtx.imageSmoothingQuality = 'high';
-  iconCtx.drawImage(big, 0, 0, ICON_SIZE, ICON_SIZE);
-  return icon.toDataURL('image/png');
+  const out = document.createElement('canvas');
+  out.width = out.height = size;
+  const outCtx = out.getContext('2d');
+  outCtx.imageSmoothingEnabled = true;
+  outCtx.imageSmoothingQuality = 'high';
+  outCtx.drawImage(big, 0, 0, size, size);
+  return out;
 }
 
 // Stessa struttura di drawMagicCircle in engine.js, senza animazioni
-function drawGameCircle(ctx, x, y, color, element, charged) {
+function drawGameCircle(ctx, x, y, color, element, projections) {
   if (element) {
     const glowRadius = RADIUS + 24;
     const grad = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
@@ -81,8 +97,8 @@ function drawGameCircle(ctx, x, y, color, element, charged) {
   }
 
   // In partita le cariche stanno fuori dal cerchio: qui vanno dentro, o uscirebbero dall'icona
-  if (charged) {
-    drawProjectilePolygonPattern(ctx, x, y, RADIUS * 0.6, PROJECTIONS.length, color, 0, PROJECTIONS);
+  if (projections.length > 0) {
+    drawProjectilePolygonPattern(ctx, x, y, RADIUS * 0.6, projections.length, color, 0, projections);
   }
 
   ctx.lineWidth = 3;

@@ -86,6 +86,15 @@ quadrato che ci entra) resta nel messaggio solo per i client non aggiornati.
 - **File audio**: vanno in `client/public/sound/`, non in `dist/` (che viene svuotata a ogni build).
 - **Transizioni**: per cambiare pagina si usa `navigateTo(url)` di `client/js/ui/motion.js` (velo a iride con il cerchio runico);
   le animazioni sono in `client/public/css/style-motion.css`, gli effetti nel canvas in `client/js/game/fx.js`.
+- **Spellbook**: dati in `client/js/game/spellbook.js`, overlay in `client/js/ui/spellbook-overlay.js`
+  (anteprime disegnate con `renderCircleImage` di `favicon.js`; stile in `style-spellbook.css`, con `.panel` e `.section-title`). Su Firestore è il campo `spellbook` del giocatore:
+  `{ "1": { elemento, proiezioni: [...], savedAt }, ... }`, aggiornato uno slot alla volta (`savePlayerSpell`).
+  Il cerchio evocato ha `spellbookElement` e `spellbookCharges[i]`; proiettili, laser e aree lanciati da lì ricevono
+  `progress: { element, projection }` (`spellProgress()` in `engine.js`) e lo rispettano anche nei tick continui.
+  Nel PvP il cerchio evocato porta con sé `spellbook: { slot, elemento, proiezioni }` nel messaggio `magicCircleUpdate`
+  (il server lo inoltra così com'è, quindi non serve aggiornarlo): l'avversario lo registra con `recordOpponentSpell`.
+  La modalità salvataggio inverte i colori del puntatore con `ctx.filter = 'invert(1)'` in `drawVirtualMouse`,
+  quindi vale per qualsiasi aspetto del puntatore.
 - **Impostazioni** (salvate in `localStorage`): numero di particelle, volume, tema, indicatore della carica selezionata
   (`chargeIndicator`: nessuno / particelle / mirino / entrambi). Il gioco le legge all'apertura della pagina.
 
@@ -106,10 +115,13 @@ Legenda dello stato: ✅ implementato · 🔜 da implementare
 | **Tasto destro** / **X** | Annulla, in ordine: il laser sotto il mouse, l'area sotto il mouse, il cerchio sotto il mouse (insieme a tutte le magie permanenti), altrimenti l'ultimo laser "semplice" (lanciato a vuoto) | ✅ |
 | **Click sinistro sul cerchio + trascinamento** | Lancia la carica selezionata nella direzione del trascinamento (per la spaziale: si disegna il perimetro) | ✅ |
 | **Rotella** | Sceglie quale carica del cerchio lanciare | ✅ |
-| **S** (tenendo premuto il tasto sinistro) | Salva il cerchio magico nello spellbook | 🔜 |
+| **R** (solo in laboratorio) | Entra/esce dalla modalità salvataggio: il puntatore ha i colori invertiti | ✅ |
+| **1**–**9** | Evoca sotto il mouse il cerchio salvato nello slot (laboratorio, training e PvP). In modalità salvataggio (laboratorio): salva nello slot il cerchio magico sotto il mouse, sovrascrivendolo | ✅ |
+| **Tab** (tenuto) | Mostra gli slot dello spellbook sopra il gioco, con lo sfondo oscurato; sparisce al rilascio. Nel PvP mostra anche gli slot già usati dall'avversario | ✅ |
 | **↑** / **↓** | Tema giorno / notte | ✅ |
 
-Z, X e i tasti del tema si possono riassegnare da **Impostazioni → Key Bindings** (salvati nel browser).
+Z, X, R, Tab e i tasti del tema si possono riassegnare da **Impostazioni → Key Bindings** (salvati nel browser);
+i tasti 1–9 sono fissi perché sono la barra degli slot. Le combinazioni con Ctrl/Alt (es. Ctrl+1) restano al browser.
 
 Regole del disegno virtuale:
 - non si possono sparare proiettili a vuoto, solo dai cerchi magici;
@@ -137,8 +149,15 @@ Cosa succede in base a ciò che si è invocato:
    quella selezionata e dopo ogni lancio la selezione torna sull'ultima.
 5. 🔜 Il cerchio magico è trascinabile (se ne può tenere uno sullo schermo per volta).
 6. 🔜 Per testare il cerchio, doppio click su di esso: se ne vede il risultato e poi sparisce (in battaglia si applica subito).
-7. 🔜 Per **salvare** il cerchio: tenendo premuto il tasto sinistro si preme **S** e si associa un disegno alla creazione,
-   per usarla velocemente in battaglia. Viene salvata nello spellbook \[dev: i disegni devono restare unici\].
+7. Per **salvare** il cerchio (solo in laboratorio): **R** attiva la modalità salvataggio, poi col mouse sul cerchio
+   si preme un numero da **1** a **9** e il cerchio (elemento e cariche, nell'ordine) finisce in quello slot dello
+   spellbook. Un cerchio vuoto non si può salvare. Gli slot si vedono tenendo premuto **Tab**.
+   Fuori dalla modalità salvataggio (e sempre in training e PvP), premendo il numero dello slot si evoca quel cerchio
+   (elemento e cariche già incisi; sostituisce il cerchio in campo). **Ciò che arriva dallo spellbook non fa crescere
+   affinità né contatori delle proiezioni**, nemmeno le magie permanenti finché restano attive; un elemento o una carica
+   disegnati a mano su quel cerchio contano normalmente.
+   Nel PvP l'overlay (Tab) mostra anche lo **spellbook dell'avversario**, ma solo gli slot che ha già evocato in quel
+   duello: gli altri restano nascosti.
 
 ### Elementi
 

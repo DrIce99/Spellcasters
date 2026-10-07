@@ -1,0 +1,305 @@
+/* Spellbook: overlay degli slot (tenendo premuto Tab) e messaggi di salvataggio.
+   La logica è in js/ui/spellbook-overlay.js. Il pannello usa .panel e .section-title di style-base.css. */
+
+.spellbook-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 800;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr); /* il pannello non si allarga oltre lo schermo */
+  place-items: center;
+  padding: 24px 16px;
+  overflow-y: auto;
+  /* Lo sfondo di gioco si scurisce in entrambi i temi, come la classifica degli sparatutto */
+  background: rgba(5, 7, 13, 0.6);
+  backdrop-filter: blur(3px);
+  pointer-events: none; /* il gioco continua a ricevere il mouse */
+  animation: spellbook-in 0.14s ease-out;
+}
+.spellbook-overlay[hidden],
+.spellbook-overlay [hidden],
+.spellbook-toast[hidden] {
+  display: none;
+}
+
+.spellbook-panel {
+  --cut: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(1060px, 100%);
+  padding: 22px 28px 18px;
+  background-color: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+}
+/* Si apre e si chiude di continuo: le staffe agli angoli arrivano subito */
+.spellbook-panel::before,
+.spellbook-panel::after {
+  animation-delay: 0s !important;
+  animation-duration: 0.3s !important;
+}
+
+.spellbook-panel header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+.spellbook-panel header h2 {
+  grid-column: 2;
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: 0.14em;
+}
+.spellbook-panel header h2::before,
+.spellbook-panel header h2::after {
+  min-width: 48px;
+}
+
+/* Etichetta squadrata, come un piccolo indicatore da HUD */
+.spellbook-mode {
+  grid-column: 3;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--accent);
+  background: var(--tint);
+  color: var(--accent-text);
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.spellbook-mode::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  rotate: 45deg;
+  animation: spellbook-blink 1.2s ease-in-out infinite;
+}
+
+/* --- Sezioni: i propri slot e quelli già visti dell'avversario --- */
+.spellbook-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.spellbook-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Pista di circuito che prosegue fino al bordo, con un pad all'inizio */
+.spellbook-section-title::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  background: var(--accent);
+}
+.spellbook-section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line-strong), transparent);
+}
+.spellbook-section.opponent .spellbook-section-title { color: var(--danger); }
+.spellbook-section.opponent .spellbook-section-title::before { background: var(--danger); }
+.spellbook-section.opponent .spellbook-section-title::after {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 55%, transparent), transparent);
+}
+
+.spellbook-slots {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none; /* gli slot dell'avversario sono pochi: stessa griglia, allineati a sinistra */
+}
+
+/* --- Card dello slot: angolo tagliato, striscia del colore dell'elemento in alto --- */
+.spellbook-slot {
+  --slot-color: var(--line-strong);
+  --cut: 10px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 30px 6px 10px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(var(--slot-color), var(--slot-color)) top left / 100% 3px no-repeat,
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--slot-color) 16%, transparent), transparent 62%),
+    var(--surface-2);
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%);
+  text-align: center;
+}
+.spellbook-slot.empty {
+  border-style: dashed;
+  background: var(--surface-2);
+}
+.spellbook-slot.empty .spellbook-preview { visibility: hidden; }
+.spellbook-slot.empty .spellbook-name {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.spellbook-slot.saved {
+  animation: spellbook-saved 0.8s var(--ease-out, ease-out);
+}
+.spellbook-section.opponent .spellbook-slot {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+/* Numero dello slot disegnato come il tasto da premere (come in Key Bindings) */
+.spellbook-key,
+.spellbook-hint kbd {
+  min-width: 1.9em;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 3px;
+  background: var(--surface);
+  color: var(--accent-text);
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  text-align: center;
+}
+.spellbook-key {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+}
+.spellbook-section.opponent .spellbook-key {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+}
+
+.spellbook-preview {
+  width: 76px;
+  max-width: 100%;
+  aspect-ratio: 1;
+}
+
+.spellbook-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+}
+
+.spellbook-charges {
+  min-height: 2.6em;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.spellbook-empty {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--line);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Suggerimenti sui tasti, separati da rombi come i pad dei circuiti */
+.spellbook-hint {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.spellbook-hint span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.spellbook-hint span + span::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  margin-right: 12px;
+  background: var(--line-strong);
+  rotate: 45deg;
+}
+.spellbook-hint kbd {
+  display: inline-block;
+}
+
+/* --- Messaggio di conferma/errore: riquadro squadrato con la barra di stato a sinistra --- */
+.spellbook-toast {
+  --cut: 10px;
+  --state: var(--success);
+  position: fixed;
+  left: 50%;
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  translate: -50% 0;
+  z-index: 850;
+  max-width: calc(100% - 32px);
+  padding: 9px 20px 9px 18px;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: inset 3px 0 0 var(--state), 0 8px 28px rgba(0, 0, 0, 0.3);
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%);
+  color: var(--text);
+  font-family: 'Cinzel', serif;
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+.spellbook-toast[data-variant="error"] {
+  --state: var(--danger);
+}
+.spellbook-toast.show {
+  animation: spellbook-toast 1.8s var(--ease-out, ease-out) forwards;
+}
+
+@keyframes spellbook-in {
+  from { opacity: 0; }
+}
+@keyframes spellbook-blink {
+  50% { opacity: 0.35; }
+}
+@keyframes spellbook-saved {
+  0% { border-color: var(--success); box-shadow: inset 0 0 0 2px var(--success), inset 0 0 26px color-mix(in srgb, var(--success) 45%, transparent); }
+  100% { border-color: var(--line); box-shadow: none; }
+}
+@keyframes spellbook-toast {
+  0% { opacity: 0; translate: -50% 12px; }
+  10%, 80% { opacity: 1; translate: -50% 0; }
+  100% { opacity: 0; translate: -50% -6px; }
+}
+
+@media (max-width: 900px) {
+  .spellbook-slots {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .spellbook-panel { padding: 18px 16px 14px; }
+  .spellbook-panel header { grid-template-columns: 1fr; justify-items: center; }
+  .spellbook-panel header h2,
+  .spellbook-mode { grid-column: 1; justify-self: center; }
+}

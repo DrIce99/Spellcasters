@@ -1,5 +1,5 @@
 // player-db.js - Lettura/scrittura dei dati giocatore su Firestore
-import { doc, setDoc, getDoc, updateDoc, increment, runTransaction } from "firebase/firestore";
+import { doc, setDoc, getDoc, updateDoc, increment, runTransaction, FieldPath } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { SKILLS, computePlayerStats, isSkillMaxed } from "../game/player-stats.js";
 
@@ -22,6 +22,7 @@ export function createDefaultPlayer(username, password = '') {
     vittorie: 0,
     partite: 0,
     magie: [],
+    spellbook: {},       // {'1': {elemento, proiezioni: [...], savedAt}, ...}: cerchi salvati negli slot 1-9
     predisposizione: {}
   };
 }
@@ -91,6 +92,27 @@ export async function incrementPlayerCounters(username, groups) {
     if (error.code === 'not-found') {
       await savePlayerData(username, {});
       await updateDoc(doc(db, "players", username), updates);
+    } else {
+      throw error;
+    }
+  }
+}
+
+/**
+ * Salva un cerchio magico in uno slot dello spellbook (sovrascrive quello che c'era).
+ * Aggiorna solo quello slot: gli altri restano come sono.
+ */
+export async function savePlayerSpell(username, slot, spell) {
+  if (!username) return;
+  const ref = doc(db, "players", username);
+  const field = new FieldPath('spellbook', String(slot));
+  try {
+    await updateDoc(ref, field, spell);
+  } catch (error) {
+    // Il documento non esiste ancora: lo crea e riprova
+    if (error.code === 'not-found') {
+      await savePlayerData(username, {});
+      await updateDoc(ref, field, spell);
     } else {
       throw error;
     }
