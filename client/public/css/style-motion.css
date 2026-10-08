@@ -145,8 +145,7 @@ html.theme-switching * {
 #signup-form,
 #player-info-card,
 .player-info-row,
-.player-info-graph-section,
-#back-home-btn {
+.player-info-graph-section {
   animation: rise-in 0.65s var(--ease-out) backwards;
 }
 #home-buttons > :nth-child(1) { animation-delay: 0.4s; }
@@ -173,7 +172,6 @@ html.theme-switching * {
 .player-info-row:nth-child(6) { animation-delay: 0.62s; }
 .player-info-row:nth-child(7) { animation-delay: 0.67s; }
 .player-info-graph-section { animation-delay: 0.75s; }
-#back-home-btn { animation-delay: 0.85s; }
 
 #home-btn {
   animation: slide-in-left 0.6s var(--ease-out) 0.35s backwards;

@@ -99,11 +99,6 @@
       display: block;
       max-width: 100%;
     }
-    #back-home-btn {
-      align-self: center;
-      margin-top: 22px;
-      min-width: 220px;
-    }
 
     /* --- Pannello statistiche --- */
     #stats-panel {
@@ -636,6 +631,8 @@
   <script>document.documentElement.dataset.theme = localStorage.getItem('colorMode') === 'night' ? 'night' : 'day';</script>
 </head>
 <body>
+  <!-- Fuori dalle viste scorrevoli: la Home si raggiunge da info, statistiche e Linker -->
+  <button id="home-btn" class="main-btn">Home</button>
   <button id="open-linker-btn" class="slide-btn left">Linker</button>
   <button id="close-linker-btn" class="slide-btn left">Info Giocatore</button>
   <button id="open-stats-btn" class="slide-btn">Statistiche</button>
@@ -697,7 +694,6 @@
         <h3 style="margin:24px 0 8px 0;">Predisposizione Proiezioni</h3>
         <canvas id="predisposition-radar" width="340" height="220"></canvas>
       </div>
-      <button id="back-home-btn" class="main-btn home-btn-long">Torna alla Home</button>
     </div>
   </div>
 

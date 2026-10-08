@@ -568,7 +568,7 @@ onColorThemeChange(() => {
   if (lastChartData) renderRadarCharts(lastChartData.affinita, lastChartData.predisposizione);
 });
 
-document.getElementById('back-home-btn').onclick = () => navigateTo('/home.html');
+document.getElementById('home-btn').onclick = () => navigateTo('/home.html');
 document.getElementById('linker-shop-btn').onclick = () => navigateTo('/shop.html');
 // --- Viste laterali: #linker o #stats nell'indirizzo aprono direttamente quella vista ---
 // (es. "Vai ai Linker" dallo shop porta a player-info.html?user=...#linker). L'indirizzo segue la vista aperta,
