@@ -174,11 +174,40 @@
       box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 25%, transparent);
     }
     .stat-value {
+      min-width: 4.6em;
       font-weight: 800;
       text-align: right;
       font-variant-numeric: tabular-nums;
       color: var(--text);
     }
+    /* Colonna del bonus dei Linker, separata da un + */
+    .stat-plus {
+      width: 0.8em;
+      flex-shrink: 0;
+      text-align: center;
+      font-weight: 800;
+      color: var(--text-muted);
+    }
+    .stat-bonus {
+      min-width: 4.6em;
+      flex-shrink: 0;
+      text-align: right;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      color: var(--accent-2-text);
+    }
+    .stat-bonus.zero { color: var(--text-muted); font-weight: 600; opacity: 0.6; }
+    .stats-list li.stats-header {
+      min-height: 0;
+      padding-top: 8px;
+      padding-bottom: 8px;
+      background: var(--surface-2);
+      font-family: 'Cinzel', serif;
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+    }
+    .stats-header .stat-value { font-weight: 700; color: var(--text-muted); }
+    .stats-header .stat-bonus { font-weight: 700; }
     .stat-preview {
       font-size: 0.85rem;
       font-weight: 600;

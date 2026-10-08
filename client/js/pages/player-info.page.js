@@ -4,8 +4,7 @@ import { setPageFavicon } from '../ui/favicon.js';
 import { getPlayerData, getCurrentUsername, spendSkillPoint, savePlayerData } from '../services/player-db.js';
 import { getExpToNext } from '../game/progression.js';
 import {
-  SKILLS, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, MANA_REGEN_PER_FRAME, computePlayerStats, getSkillValue, isSkillMaxed,
-  getAtkMultiplier
+  SKILLS, BASE_DAMAGE, SPATIAL_DAMAGE_AREA_UNIT, computePlayerStats, getSkillValue, isSkillMaxed, getAtkMultiplier
 } from '../game/player-stats.js';
 import { ELEMENTS, PROJECTIONS, SYMBOLS, getElementColor, NEUTRAL_COLOR, EMPTY_CIRCLE_COLOR } from '../game/elements.js';
 import { navigateTo, replayClass, shake } from '../ui/motion.js';
@@ -196,7 +195,8 @@ function makeElement(tag, className, text) {
   return el;
 }
 
-function statRow(label, value, { labelColor } = {}) {
+// Riga: etichetta | valore base | + | bonus dei Linker. bonus null = la statistica non ha bonus dai Linker
+function statRow(label, value, { labelColor, bonus = null } = {}) {
   const li = makeElement('li');
   const labelEl = makeElement('span', 'stat-label', label);
   // Il colore dell'elemento va su un piccolo pad accanto all'etichetta: il testo resta leggibile
@@ -204,16 +204,36 @@ function statRow(label, value, { labelColor } = {}) {
     labelEl.classList.add('element');
     labelEl.style.setProperty('--el', labelColor);
   }
-  li.append(labelEl, makeElement('span', 'stat-value', value));
+  const hasBonus = bonus !== null;
+  const zero = hasBonus && /^0(\.0+)?(%|\/s)?$/.test(bonus);
+  li.append(
+    labelEl,
+    makeElement('span', 'stat-value', value),
+    makeElement('span', 'stat-plus', hasBonus ? '+' : ''),
+    makeElement('span', `stat-bonus${zero ? ' zero' : ''}`, hasBonus ? bonus : '')
+  );
+  return li;
+}
+
+// Intestazione delle colonne (allineata alle righe)
+function statsHeaderRow() {
+  const li = makeElement('li', 'stats-header');
+  li.append(
+    makeElement('span', 'stat-label', ''),
+    makeElement('span', 'stat-value', 'Base'),
+    makeElement('span', 'stat-plus', ''),
+    makeElement('span', 'stat-bonus', 'Linker'),
+    makeElement('span', 'stat-btn-spacer')
+  );
   return li;
 }
 
 // Riga di una statistica potenziabile: valore, anteprima "prima → dopo (+x)" e pulsante +
-function skillRow(key, stats, canSpend, data) {
+function skillRow(key, stats, canSpend, data, bonus) {
   const points = stats.allocation[key];
   const current = getSkillValue(key, points);
   const maxed = isSkillMaxed(key, points);
-  const li = statRow(SKILLS[key].label, formatSkill(key, current));
+  const li = statRow(SKILLS[key].label, formatSkill(key, current), { bonus });
   li.dataset.skill = key;
 
   if (key === 'atk') {
@@ -270,11 +290,29 @@ function atkInfoRow(stats) {
 // per cerchio e proiezioni con le volte che sono stati disegnati
 function marginRow(name, stats) {
   const color = ELEMENTS.includes(name) ? getElementColor(name) : name === 'cerchio' ? EMPTY_CIRCLE_COLOR : NEUTRAL_COLOR;
-  return statRow(`Margine di errore ${capitalize(name)}`, formatPercent(stats.recognitionMargin[name]), { labelColor: color });
+  return withSpacer(statRow(`Margine di errore ${capitalize(name)}`, formatPercent(stats.recognitionMargin[name]), { labelColor: color }));
+}
+
+// Valori senza i Linker: stesse formule del gioco, con gli slot vuoti
+function rawStatsOf(data) {
+  return computePlayerStats({ ...data, linker: { ...data.linker, equip: {} } });
+}
+
+const round = (value, digits) => Number(value.toFixed(digits));
+const formatFlat = (value) => formatNumber(round(value, 2));
+const formatRegen = (perFrame) => `${(perFrame * 60).toFixed(2)}/s`; // mana al secondo
+
+// Le righe senza pulsante + hanno uno spazio al suo posto, così le colonne restano allineate
+function withSpacer(li) {
+  li.appendChild(makeElement('span', 'stat-btn-spacer'));
+  return li;
 }
 
 function renderStats(data) {
   const stats = computePlayerStats(data);
+  const raw = rawStatsOf(data);
+  const flatBonus = (key) => formatFlat(stats[key] - raw[key]);
+  const pctBonus = (total, base) => formatPercent(round(total - base, 6));
   // Si possono spendere punti solo sul proprio profilo
   const canSpend = data.username === getCurrentUsername();
   document.getElementById('skill-points-value').textContent = stats.skillPointsAvailable;
@@ -282,20 +320,28 @@ function renderStats(data) {
   const list = document.getElementById('stats-list');
   const divider = () => makeElement('li', 'stats-divider');
   const rows = [
-    skillRow('hp', stats, canSpend, data),
-    skillRow('atk', stats, canSpend, data),
+    statsHeaderRow(),
+    skillRow('hp', stats, canSpend, data, flatBonus('hp')),
+    skillRow('atk', stats, canSpend, data, flatBonus('atk')),
     ...(atkInfoOpen ? [atkInfoRow(stats)] : []),
-    skillRow('mp', stats, canSpend, data),
-    skillRow('riduzioneMana', stats, canSpend, data),
+    skillRow('mp', stats, canSpend, data, flatBonus('mp')),
+    skillRow('riduzioneMana', stats, canSpend, data, pctBonus(stats.riduzioneMana, raw.riduzioneMana)),
+    withSpacer(statRow('Rigenerazione mana', formatRegen(raw.manaRegenPerFrame), {
+      bonus: formatRegen(stats.manaRegenPerFrame - raw.manaRegenPerFrame)
+    })),
     divider(),
-    ...ELEMENTS.map(e => statRow(`Bonus DMG ${capitalize(e)}`, formatPercent(stats.elementDmgBonus[e]), { labelColor: getElementColor(e) })),
+    ...ELEMENTS.map(e => withSpacer(statRow(`Bonus DMG ${capitalize(e)}`, formatPercent(raw.elementDmgBonus[e]), {
+      labelColor: getElementColor(e), bonus: pctBonus(stats.elementDmgBonus[e], raw.elementDmgBonus[e])
+    }))),
     divider(),
-    ...ELEMENTS.map(e => statRow(`DEF ${capitalize(e)}`, formatPercent(stats.elementDef[e]), { labelColor: getElementColor(e) })),
+    ...ELEMENTS.map(e => withSpacer(statRow(`DEF ${capitalize(e)}`, formatPercent(raw.elementDef[e]), {
+      labelColor: getElementColor(e), bonus: pctBonus(stats.elementDef[e], raw.elementDef[e])
+    }))),
     divider(),
-    statRow('Tasso CRIT', formatPercent(stats.critRate)),
-    statRow('DMG CRIT', formatPercent(stats.critDmg)),
+    withSpacer(statRow('Tasso CRIT', formatPercent(raw.critRate), { bonus: pctBonus(stats.critRate, raw.critRate) })),
+    withSpacer(statRow('DMG CRIT', formatPercent(raw.critDmg), { bonus: pctBonus(stats.critDmg, raw.critDmg) })),
     divider(),
-    ...linkerStatRows(stats, data),
+    ...linkerSetRows(data),
     ...ELEMENTS.map(e => marginRow(e, stats)),
     divider(),
     ...SYMBOLS.map(s => marginRow(s, stats))
@@ -303,20 +349,15 @@ function renderStats(data) {
   list.replaceChildren(...rows);
 }
 
-// Valori finali con i Linker equipaggiati (le righe sopra mostrano solo i punti abilità) e set attivi
-function linkerStatRows(stats, data) {
+// Set dei Linker equipaggiati e bonus attivi (2 / 4 pezzi)
+function linkerSetRows(data) {
   const { sets } = getLinkerBonuses(data);
-  if (!Object.keys(stats.linkerBonuses || {}).length) return [];
-  const rows = [
-    statRow('HP totale (con i Linker)', formatNumber(Math.round(stats.hp * 10) / 10)),
-    statRow('ATK totale (con i Linker)', formatNumber(Math.round(stats.atk * 100) / 100)),
-    statRow('MP totale (con i Linker)', formatNumber(Math.round(stats.mp * 10) / 10)),
-    statRow('Rigenerazione mana', `${formatPercent(stats.manaRegenPerFrame / MANA_REGEN_PER_FRAME)}`)
-  ];
+  if (!sets.length) return [];
+  const rows = [];
   for (const { key, count, two, four } of sets) {
     const set = LINKER_SETS[key];
     const active = [two && '2 pezzi', four && '4 pezzi'].filter(Boolean).join(' + ') || 'nessun bonus';
-    rows.push(statRow(`${set.name} (${count}/4)`, active, { labelColor: set.color }));
+    rows.push(withSpacer(statRow(`${set.name} (${count}/4)`, active, { labelColor: set.color })));
   }
   rows.push(makeElement('li', 'stats-divider'));
   return rows;
