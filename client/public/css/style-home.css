@@ -40,6 +40,23 @@ body.night #home-container::before {
   margin: 0;
 }
 
+/* Contatore sul pulsante Missioni (ricompense da riscattare) */
+.home-badge {
+  display: inline-block;
+  min-width: 1.5em;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.5;
+  letter-spacing: 0;
+  color: var(--on-accent);
+  background: var(--success);
+  vertical-align: middle;
+}
+.home-badge[hidden] { display: none; }
+
 #home-buttons {
   display: flex;
   flex-direction: column;

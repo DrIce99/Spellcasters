@@ -4,7 +4,7 @@ A simple web app game with *magic*
 - [Per lo sviluppatore](#per-lo-sviluppatore)
 - [Game design](#game-design)
   - [Comandi](#comandi) · [Sistema di magia](#sistema-di-magia) · [Elementi](#elementi) · [Proiezioni](#proiezioni)
-  - [Interazioni tra magie](#interazioni-tra-magie) · [Mana](#mana) · [Progressione](#progressione) · [Linker](#linker) · [Roadmap](#roadmap)
+  - [Interazioni tra magie](#interazioni-tra-magie) · [Mana](#mana) · [Progressione](#progressione) · [Linker](#linker) · [Missioni](#missioni) · [Roadmap](#roadmap)
 
 ---
 
@@ -343,6 +343,23 @@ Leggendario 2%; garanzia (condivisa tra i pacchetti): almeno un Epico ogni 10 pu
   tra l'ultima e la prima c'è la stessa distanza), con almeno due altezze del font tra l'una e l'altra: il raggio cresce con
   la lunghezza del nome (oltre un certo limite il font si rimpicciolisce per restare dentro il cerchio). La croce runica ᛭
   in alto segna l'inizio del nome. Le cifre si scrivono in lettere (es. "9" → "nove"), i simboli diventano il separatore.
+
+### Missioni
+
+Pagina **Missioni** (`quests.html`, dalla Home: il pulsante mostra quante ricompense si possono riscattare).
+Ricompense in BitRune, da riscattare a mano. Elenco e numeri in `client/js/game/quests-data.js`.
+
+- **Giornaliere**: 3 al giorno (rinnovo a mezzanotte, ora locale), 15-40 ◈ ciascuna, +30 ◈ riscattandole tutte.
+- **Settimanali**: 5 a settimana (rinnovo il lunedì), più lunghe, 120-300 ◈ ciascuna, +150 ◈ riscattandole tutte.
+- Scelte in automatico e senza server: ogni giocatore ha un suo ordine delle missioni (mescolato in base al nome) che si
+  percorre a rotazione, quindi una missione torna solo dopo tutte le altre (≥ 9 giorni / ≥ 4 settimane).
+- Cosa conta: partite, vittorie e colpi a segno solo in PvP; lanci, cerchi, incisioni, spellbook, interazioni tra
+  magie e mana speso in PvP e nel Training (non in Laboratorio); pull, livelli e catalisi dei Linker ovunque.
+- Su Firestore: `missioni: { giornaliere|settimanali: { <numero del periodo>: { progressi: { id: n }, riscattate: [id],
+  bonus } } }`: un periodo nuovo parte vuoto da solo. Gli eventi si accumulano e si salvano ogni 5 s, a fine partita e
+  quando la pagina si nasconde (`client/js/services/quest-tracker.js`) con **incrementi atomici**, non transazioni:
+  durante il combattimento il profilo viene aggiornato ogni secondo e una transazione verrebbe rifiutata. Il riscatto
+  è una transazione (si fa fuori dal combattimento) e cancella i periodi passati.
 
 ### Roadmap
 

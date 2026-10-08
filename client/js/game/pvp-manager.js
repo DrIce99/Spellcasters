@@ -11,6 +11,7 @@ import { computePlayerStats, applyElementDefense, rollCritical, BASE_DAMAGE, SPA
 import { WS_URL } from '../services/config.js';
 import { loadPlayerFromDB, savePlayerData, getCurrentUsername } from '../services/player-db.js';
 import { addBitRune } from '../services/linker-db.js';
+import { trackQuest, flushQuests } from '../services/quest-tracker.js';
 import { WIN_REWARD, CURRENCIES } from './linker-data.js';
 import { navigateTo, fadeOutAndHide } from '../ui/motion.js';
 import { playSfx } from '../ui/sfx.js';
@@ -833,6 +834,7 @@ export class PvPManager {
             } else if (projectile.owner === 'local') {
                 if (this.isProjectileHitting(projectile, this.opponent.position)) {
                     projectile.hit = true;
+                    trackQuest('projectile_hit', { element: projectile.element });
                     this.send({
                         type: 'projectileHit',
                         target: this.playerRole === 'player1' ? 'player2' : 'player1',
@@ -1093,6 +1095,10 @@ export class PvPManager {
             });
             // Ogni vittoria vale dei BitRune da spendere nello shop
             if (won === true) await addBitRune(username, WIN_REWARD);
+            // Missioni: la partita (e l'eventuale vittoria) si salvano subito, con tutto il resto del match
+            trackQuest('match_played');
+            if (won === true) trackQuest('match_won');
+            await flushQuests();
         } catch (error) {
             console.error('❌ Errore aggiornamento statistiche:', error);
         }

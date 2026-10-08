@@ -162,7 +162,8 @@ function showResults(linkers) {
 document.getElementById('pull-close').addEventListener('click', () => {
   document.getElementById('pull-overlay').hidden = true;
 });
-const toLinkers = () => navigateTo(`/player-info.html?user=${encodeURIComponent(username)}`);
+// #linker: la pagina info si apre direttamente sul pannello dei Linker
+const toLinkers = () => navigateTo(`/player-info.html?user=${encodeURIComponent(username)}#linker`);
 document.getElementById('pull-linker').addEventListener('click', toLinkers);
 document.getElementById('shop-linker-btn').addEventListener('click', toLinkers);
 document.getElementById('home-btn').addEventListener('click', () => navigateTo('/home.html'));

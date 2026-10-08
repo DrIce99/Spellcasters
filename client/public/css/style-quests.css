@@ -1,0 +1,135 @@
+/* Missioni giornaliere e settimanali. Logica in js/pages/quests.page.js */
+
+#home-btn {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 100;
+}
+
+/* style-base.css blocca lo scorrimento di html e body (pagine di gioco): la pagina scorre nel suo contenitore */
+#quests {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 80px 24px 48px;
+}
+#quests > h1 {
+  width: min(1100px, 100%);
+  font-size: 1.8rem;
+}
+
+.quests-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.quests-wallet {
+  margin: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.quests-wallet strong {
+  display: inline-block;
+  font-size: 1.1rem;
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+.quests-small-btn { --cut: 6px; padding: 0.45em 1em; font-size: 0.85rem; }
+.quests-note { margin: 0; font-size: 0.8rem; color: var(--text-muted); text-align: center; }
+.quests-error { min-height: 1.2em; margin: 0; color: var(--danger); font-weight: 600; }
+
+.quests-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 18px;
+  width: min(1100px, 100%);
+  align-items: start;
+}
+
+.quests-period {
+  --cut: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px 20px;
+}
+.quests-period-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.quests-period-header h2 { margin: 0; font-size: 1.25rem; color: var(--accent-text); }
+.quests-reset { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.quest-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.quest,
+.quest-bonus {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  transition: border-color 0.2s, background-color 0.2s;
+}
+.quest.done:not(.claimed),
+.quest-bonus.ready {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, var(--surface-2));
+  box-shadow: inset 3px 0 0 var(--success);
+}
+.quest.claimed,
+.quest-bonus.claimed { opacity: 0.55; }
+.quest.just-claimed { animation: quest-claimed 0.9s ease-out; }
+
+.quest-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.quest-text { margin: 0; font-weight: 600; }
+.quest-bar { height: 6px; border: 1px solid var(--line-strong); background: var(--surface); }
+.quest-bar-fill { height: 100%; background: var(--accent); transition: width 0.5s ease; }
+.quest.done .quest-bar-fill { background: var(--success); }
+.quest-amount { font-size: 0.78rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.quest-reward {
+  font-family: 'Cinzel', serif;
+  font-weight: 800;
+  color: var(--accent-text);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.quest-claim { --cut: 6px; padding: 0.45em 0.9em; font-size: 0.8rem; }
+.quest.done:not(.claimed) .quest-claim,
+.quest-bonus.ready .quest-claim {
+  --edge: var(--success);
+  --fill: var(--success);
+  color: var(--on-accent);
+}
+.quest-claimed { font-size: 0.8rem; font-weight: 700; color: var(--success); white-space: nowrap; }
+.quest-bonus { border-style: dashed; }
+
+@keyframes quest-claimed {
+  0% { background: color-mix(in srgb, var(--success) 40%, var(--surface-2)); }
+}
+
+@media (max-width: 600px) {
+  #quests { padding: 72px 12px 32px; }
+  .quest, .quest-bonus { grid-template-columns: minmax(0, 1fr) auto; }
+  .quest-claim, .quest-claimed { grid-column: 1 / -1; justify-self: end; }
+}

@@ -16,6 +16,8 @@ import {
 import { spawnRing, spawnCircleCollapse, spawnStrokeFade, drawFx, easeOutBack, easeOutCubic } from './fx.js';
 import { playSfx } from '../ui/sfx.js';
 import { matchesAction } from '../ui/keybindings.js';
+import { trackQuest, setQuestBaseline } from '../services/quest-tracker.js';
+import { enableQuestToasts } from '../ui/quest-toast.js';
 import {
   loadSpellbook, getSpell, isSaveMode, toggleSaveMode, slotFromKeyEvent, isCircleSavable, saveCircleToSlot,
   recordOpponentSpell
@@ -286,6 +288,11 @@ async function loadPlayerProgress() {
     playerExp = player.esperienza || 0;
   }
   loadSpellbook(player?.spellbook);
+  // Missioni: in partita e nel training un avviso mostra quando avanzano (in laboratorio non contano)
+  if (!isLab) {
+    setQuestBaseline(player || {});
+    enableQuestToasts();
+  }
   // Mana, vita, ATK e difese dipendono dai punti abilità e dall'affinità, non dal livello
   playerStats = computePlayerStats(player || {});
   setManaValues({ max: playerStats.mp, regen: playerStats.manaRegenPerFrame });
@@ -303,6 +310,13 @@ async function loadPlayerProgress() {
   lastSavedMana = mana;
   playerLoaded = true;
   drawExpBar();
+}
+
+// Missioni: le azioni di combattimento contano solo in una partita PvP in corso o nel training
+// (non in laboratorio, dove si potrebbero completare senza combattere)
+function questCombat(type, details) {
+  const inMatch = pvpManager ? pvpManager.matchState === 'active' : !isLab;
+  if (inMatch) trackQuest(type, details);
 }
 
 // Nel PvP si possono lanciare magie solo a partita iniziata
@@ -525,6 +539,7 @@ function summonSpellbookCircle(slot) {
   }
   if (!canAct()) return;
   createMagicCircle(spell, slot);
+  questCombat('spellbook_summon');
   const color = circleColorOf(magicCircle);
   magicCircle.flashAt = performance.now();
   spawnRing(magicCircle.x, magicCircle.y, { color, from: magicCircle.radius * 0.3, to: magicCircle.radius + 80, duration: 600, width: 3 });
@@ -606,6 +621,7 @@ function recognizeSpell(stroke) {
     if (isElement(name)) {
       magicCircle.elemento = name;
       magicCircle.spellbookElement = false;
+      questCombat('element_engraved', { element: name });
       incrementaAffinitaBuffer(name);
       const color = getElementColor(name);
       engraveCircle(color);
@@ -619,6 +635,7 @@ function recognizeSpell(stroke) {
 
   if (name === "cerchio") {
     createMagicCircle();
+    questCombat('circle_summoned');
   } else if (name === "proiettile") {
     // Proiettile libero: sempre mana puro (neutro)
     launchProjectile(stroke[0], stroke[stroke.length - 1]);
@@ -1021,6 +1038,7 @@ function launchProjectile(start, end, { element = null, tipo = "proiettile", pro
   }
 
   if (progress.projection) incrementaProiezioneUsataBuffer(tipo);
+  questCombat('projectile_cast', { element });
   addExp(2);
   audioManager.playProjectileSound(element);
   return true;
@@ -1213,6 +1231,7 @@ function launchLaser(start, end, { element = null, simple = false, progress = FU
   spawnLaserCastParticles(laser, element ? getElementColor(element) : NEUTRAL_COLOR);
 
   if (progress.projection) incrementaProiezioneUsataBuffer('laser');
+  questCombat('laser_cast', { element });
   if (element && progress.element) incrementaAffinitaBuffer(element);
   addExp(2);
   return true;
@@ -1373,6 +1392,7 @@ function updateLasers() {
         return;
       }
       setCurrentMana(currentMana - cost);
+      questCombat('mana_spent', { amount: cost });
       addExp(cost);
     }
     laser.affinityTimer += frameMs;
@@ -1614,6 +1634,7 @@ function activateSpazialeArea(polygon, color, element, { progress = FULL_PROGRES
   const areaElement = element || 'spaziale';
 
   const size = registerLocalArea({ id: areaId, polygon, color, element: areaElement, progress });
+  questCombat('area_cast', { element });
   if (element && progress.element) incrementaAffinitaBuffer(element);
   addExp(Math.floor(size / 1000));
 
@@ -1696,6 +1717,7 @@ function updateSpazialeAreas() {
     triggerBurnout();
   } else {
     setCurrentMana(currentMana - manaToDrain);
+    questCombat('mana_spent', { amount: manaToDrain });
   }
   addExp(manaToDrain);
 }
@@ -1841,6 +1863,7 @@ function sendAreaUpdate(area, extra = {}) {
 // Lush / magma / charged: la magia cambia stato per un tempo limitato, poi sparisce
 function applyVariant(spell, effect, causerOwner) {
   spell.variant = effect;
+  questCombat('interaction', { variant: effect }); // le magie modificate qui sono sempre nostre
   // Le magie modificate qui sono sempre nostre: l'altro caster è chi ha causato l'effetto
   if (effect === 'magma' || effect === 'charged') spell.variantAtk = averageAtk('local', causerOwner);
   spell.expiresAt = Date.now() + VARIANT_DURATIONS[effect];
@@ -1940,6 +1963,10 @@ function receiveGrantedSpell(data) {
 
 // otherOwner: proprietario della magia con cui il proiettile ha interagito
 function applyProjectileEffect(projectile, effect, otherOwner) {
+  // Interazioni dei nostri proiettili (per le missioni)
+  if (projectile.owner !== 'opponent' && ['lush', 'magma', 'charged'].includes(effect)) {
+    questCombat('interaction', { variant: effect });
+  }
   if (effect === 'remove' || effect === 'lush') {
     projectile.hit = true; // sparisce al prossimo aggiornamento
   } else if (effect === 'ignite') {
@@ -2412,6 +2439,7 @@ function spendMana(amount) {
     return false;
   }
   setCurrentMana(getCurrentMana() - amount);
+  questCombat('mana_spent', { amount });
   return true;
 }
 

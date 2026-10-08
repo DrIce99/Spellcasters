@@ -570,21 +570,43 @@ onColorThemeChange(() => {
 
 document.getElementById('back-home-btn').onclick = () => navigateTo('/home.html');
 document.getElementById('linker-shop-btn').onclick = () => navigateTo('/shop.html');
+// --- Viste laterali: #linker o #stats nell'indirizzo aprono direttamente quella vista ---
+// (es. "Vai ai Linker" dallo shop porta a player-info.html?user=...#linker). L'indirizzo segue la vista aperta,
+// così ricaricando la pagina si resta dove si era.
+const VIEW_CLASSES = { linker: 'show-linker', stats: 'show-stats' };
+
+function setViewInUrl(view) {
+  history.replaceState(null, '', `${location.pathname}${location.search}${view ? `#${view}` : ''}`);
+}
+
+function openViewFromUrl() {
+  const view = location.hash.slice(1);
+  if (!VIEW_CLASSES[view]) return;
+  // Senza scorrimento: si arriva già nella vista giusta, senza passare dalle info
+  document.body.classList.add('no-view-transition', VIEW_CLASSES[view]);
+  requestAnimationFrame(() => requestAnimationFrame(() => document.body.classList.remove('no-view-transition')));
+  if (view === 'linker') updateLinkerAnimation();
+}
+
 document.getElementById('open-stats-btn').onclick = () => {
   document.body.classList.add('show-stats');
+  setViewInUrl('stats');
   playSfx('slide', { direction: -1 });
 };
 document.getElementById('close-stats-btn').onclick = () => {
   document.body.classList.remove('show-stats');
+  setViewInUrl(null);
   playSfx('slide', { direction: 1 });
 };
 document.getElementById('open-linker-btn').onclick = () => {
   document.body.classList.add('show-linker');
+  setViewInUrl('linker');
   playSfx('slide', { direction: 1 });
   updateLinkerAnimation();
 };
 document.getElementById('close-linker-btn').onclick = () => {
   document.body.classList.remove('show-linker');
+  setViewInUrl(null);
   // Si torna alle info: l'inventario si chiude dopo lo scorrimento della vista
   setTimeout(() => linkerInspector?.closeInstantly(), 900);
   playSfx('slide', { direction: -1 });
@@ -597,3 +619,5 @@ document.addEventListener('visibilitychange', () => {
   updateLinkerAnimation();
   if (!document.hidden) renderPlayerInfo();
 });
+
+openViewFromUrl();

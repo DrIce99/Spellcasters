@@ -1,0 +1,51 @@
+/* Avvisi in partita quando una missione avanza (js/ui/quest-toast.js) */
+.quest-toasts {
+  position: fixed;
+  left: 22px;
+  bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  z-index: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+}
+.quest-toast {
+  --cut: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  max-width: min(360px, calc(100vw - 44px));
+  padding: 5px 12px 5px 10px;
+  border: 1px solid var(--line-strong);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+  clip-path: polygon(0 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% 100%, 0 100%);
+  font-size: 0.8rem;
+  color: var(--text);
+  animation: quest-toast-in 0.25s ease-out;
+  transition: opacity 0.3s, translate 0.3s;
+}
+.quest-toast-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.quest-toast-count {
+  flex-shrink: 0;
+  font-family: 'Cinzel', serif;
+  font-weight: 800;
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+.quest-toast.completed {
+  border-color: var(--success);
+  box-shadow: inset 3px 0 0 var(--success), 0 0 14px color-mix(in srgb, var(--success) 40%, transparent);
+}
+.quest-toast.completed .quest-toast-count { color: var(--success); }
+.quest-toast.bump .quest-toast-count { animation: quest-toast-bump 0.3s ease-out; }
+.quest-toast.leaving { opacity: 0; translate: -12px 0; }
+
+@keyframes quest-toast-in { from { opacity: 0; translate: -16px 0; } }
+@keyframes quest-toast-bump { 40% { scale: 1.25; } }

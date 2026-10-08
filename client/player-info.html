@@ -24,6 +24,10 @@
       transition: transform 0.5s ease-in-out;
     }
     body.show-stats #main-view-wrapper { transform: translateX(-200vw); }
+    /* Aprendo la pagina direttamente su una vista (#linker, #stats) non si vede lo scorrimento */
+    body.no-view-transition #main-view-wrapper,
+    body.no-view-transition #main-view-wrapper > *,
+    body.no-view-transition #main-view-wrapper > * > * { transition: none !important; }
     body.show-linker #main-view-wrapper { transform: translateX(0); }
     /* Dalle info si apre una delle due viste laterali; da lì si torna solo alle info */
     body:is(.show-stats, .show-linker) :is(#open-stats-btn, #open-linker-btn),

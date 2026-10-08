@@ -3,6 +3,7 @@
 import { doc, runTransaction, updateDoc, increment } from "firebase/firestore";
 import { db } from "./firebase.js";
 import { savePlayerData } from "./player-db.js";
+import { trackQuest, flushQuests } from "./quest-tracker.js";
 import {
   PACKS, LINKER_SLOTS, pullPack, catalystYield, catalystToLevel, addLinkerExp, LINKER_MAX_LEVEL, getInventory
 } from "../game/linker-data.js";
@@ -13,6 +14,15 @@ function playerRef(username) {
 }
 
 const balance = (data, key) => Math.max(0, Math.floor(Number(data?.valute?.[key]) || 0));
+
+// Missioni dei Linker: contano ovunque e si salvano subito dopo l'operazione riuscita
+function questAfter(promise, type, amountOf) {
+  return promise.then((result) => {
+    trackQuest(type, { amount: amountOf(result) });
+    flushQuests();
+    return result;
+  });
+}
 
 async function withPlayer(username, change) {
   const ref = playerRef(username);
@@ -30,7 +40,7 @@ async function withPlayer(username, change) {
 export function pullLinkers(username, packKey, count) {
   const pack = PACKS[packKey];
   if (!pack || count < 1) return Promise.reject(new Error('Pacchetto non valido'));
-  return withPlayer(username, (data, update) => {
+  return questAfter(withPlayer(username, (data, update) => {
     const cost = pack.cost * count;
     const bitrune = balance(data, 'bitrune');
     if (bitrune < cost) throw new Error('BitRune insufficienti');
@@ -38,12 +48,12 @@ export function pullLinkers(username, packKey, count) {
     const inventario = [...getInventory(data), ...linkers];
     update({ 'valute.bitrune': bitrune - cost, 'linker.inventario': inventario, 'gacha.pity': pity });
     return { linkers, player: { ...data, valute: { ...data.valute, bitrune: bitrune - cost }, linker: { ...data.linker, inventario }, gacha: { ...data.gacha, pity } } };
-  });
+  }), 'linker_pull', () => count);
 }
 
 /** Catalizza (distrugge) un Linker: restituisce il Catalizzante ottenuto. Se era equipaggiato, lo slot si svuota. */
 export function catalyzeLinker(username, linkerId) {
-  return withPlayer(username, (data, update) => {
+  return questAfter(withPlayer(username, (data, update) => {
     const inventory = getInventory(data);
     const linker = inventory.find(l => l.id === linkerId);
     if (!linker) throw new Error('Linker non trovato');
@@ -56,7 +66,7 @@ export function catalyzeLinker(username, linkerId) {
     if (data.linker?.equip?.[linker.slot] === linkerId) fields[`linker.equip.${linker.slot}`] = null;
     update(fields);
     return { gained, catalizzante };
-  });
+  }), 'linker_catalyze', () => 1);
 }
 
 /**
@@ -64,7 +74,7 @@ export function catalyzeLinker(username, linkerId) {
  * @returns {Promise<{ linker: object, upgraded: string[], spent: number }>} upgraded = sub stat potenziate
  */
 export function levelUpLinker(username, linkerId, targetLevel) {
-  return withPlayer(username, (data, update) => {
+  return questAfter(withPlayer(username, (data, update) => {
     const inventory = getInventory(data);
     const index = inventory.findIndex(l => l.id === linkerId);
     if (index === -1) throw new Error('Linker non trovato');
@@ -77,8 +87,8 @@ export function levelUpLinker(username, linkerId, targetLevel) {
     const { linker, upgraded } = addLinkerExp(current, spent);
     const inventario = inventory.map((l, i) => (i === index ? linker : l));
     update({ 'linker.inventario': inventario, 'valute.catalizzante': owned - spent });
-    return { linker, upgraded, spent };
-  });
+    return { linker, upgraded, spent, levels: (linker.livello || 0) - (current.livello || 0) };
+  }), 'linker_level', (result) => result.levels);
 }
 
 /** Equipaggia un Linker nel suo slot (linkerId null = svuota lo slot) */

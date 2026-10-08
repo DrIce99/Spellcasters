@@ -3,6 +3,7 @@ import { initColorTheme } from '../ui/theme.js';
 import { setPageFavicon } from '../ui/favicon.js';
 import { setupTrainingDummy } from '../game/training.js';
 import { navigateTo } from '../ui/motion.js';
+import { flushQuests } from '../services/quest-tracker.js';
 
 initColorTheme();
 setPageFavicon({ element: 'fuoco' }); // icona della scheda: un cerchio magico diverso per ogni pagina
@@ -14,7 +15,10 @@ if (mode === 'training') {
   homeBtn.id = 'home-btn';
   homeBtn.className = 'btn-permanent';
   homeBtn.textContent = 'Home';
-  homeBtn.onclick = () => navigateTo('/home.html');
+  homeBtn.onclick = () => {
+    flushQuests(); // le missioni si salvano durante la transizione, non all'ultimo istante
+    navigateTo('/home.html');
+  };
   document.body.insertBefore(homeBtn, document.body.firstChild);
 
   setupTrainingDummy(document.getElementById('spellCanvas'));

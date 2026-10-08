@@ -5,6 +5,8 @@ import { startFogBackground } from '../ui/fog-background.js';
 import { CURRENT_VERSION } from '../data/changelog.js';
 import { navigateTo, openModal, closeModal } from '../ui/motion.js';
 import { playSfx } from '../ui/sfx.js';
+import { getPlayerData } from '../services/player-db.js';
+import { countClaimable } from '../game/quests-data.js';
 import {
     KEY_ACTIONS, getKeyBinding, setKeyBinding, resetKeyBindings, formatKey, isReservedKey
 } from '../ui/keybindings.js';
@@ -21,6 +23,24 @@ if (!username) {
 document.getElementById('btn-lab').onclick = () => navigateTo('/lab.html');
 document.getElementById('btn-arena').onclick = () => navigateTo('/arena.html');
 document.getElementById('btn-shop').onclick = () => navigateTo('/shop.html');
+document.getElementById('btn-quests').onclick = () => navigateTo('/quests.html');
+
+// Badge sul pulsante Missioni: quante ricompense si possono riscattare
+async function updateQuestsBadge() {
+    try {
+        const player = await getPlayerData(username);
+        const count = player ? countClaimable(player, username) : 0;
+        const badge = document.getElementById('quests-badge');
+        badge.textContent = String(count);
+        badge.hidden = count === 0;
+    } catch (error) {
+        console.warn('Missioni non disponibili:', error);
+    }
+}
+if (username) updateQuestsBadge();
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && username) updateQuestsBadge();
+});
 const versionBtn = document.getElementById('version');
 versionBtn.textContent = `Version ${CURRENT_VERSION}`;
 versionBtn.title = 'Patch notes';
