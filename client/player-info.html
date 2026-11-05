@@ -6,6 +6,7 @@
   <link rel="icon" href="data:,"> <!-- sostituita da js/ui/favicon.js con un cerchio magico -->
   <link rel="stylesheet" href="/css/style-base.css">
   <link rel="stylesheet" href="/css/style-buttons.css">
+  <link rel="stylesheet" href="/css/style-linker.css">
   <link rel="stylesheet" href="/css/style-home.css">
   <link rel="stylesheet" href="/css/style-modal.css">
   <link rel="stylesheet" href="/css/style-expbar.css">
@@ -312,9 +313,11 @@
       /* Colonna del cerchio a larghezza fissa: con minmax() la griglia la ricalcolava sul contenuto
          e, mentre la lista si restringeva, il cerchio rimpiccioliva */
       grid-template-columns: var(--circle-size) minmax(0, 1fr);
-      grid-template-areas: "circle slots";
+      /* A destra del cerchio, centrati in verticale: slot e sotto il resoconto dei set */
+      grid-template-areas: "circle ." "circle slots" "circle summary" "circle .";
+      grid-template-rows: 1fr auto auto 1fr;
       align-items: center;
-      gap: 28px;
+      gap: 0 28px;
       width: min(100%, calc(var(--circle-size) + 508px));
     }
     /* Durante lo zoom sullo slot il bordo del cerchio sfuma (lo disegna linker-circle.js) */
@@ -356,6 +359,7 @@
       width: min(100%, 1480px);
       grid-template-columns: max(var(--circle-size), 400px) minmax(0, 1fr); /* almeno 5 schede da 76 px + 4 spazi da 5 px */
       grid-template-areas: "circle inventory" "slots inventory";
+      grid-template-rows: none;
       align-items: start;
       row-gap: 14px;
     }
@@ -378,6 +382,30 @@
       box-shadow: inset 0 -3px 0 var(--linker-color, var(--accent));
     }
     #linker-slots li.hover:not(.selected) { background: var(--tint); }
+
+    /* --- Resoconto dei set (inventario chiuso): sparisce mentre la lista si restringe, senza spostarla --- */
+    #linker-summary {
+      grid-area: summary;
+      align-self: start;
+      margin-top: 18px;
+      transition: opacity 0.25s ease;
+    }
+    #linker-summary h3 {
+      margin: 0 0 8px;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .linker-summary-sets {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+      gap: 8px;
+    }
+    .linker-summary-sets .linker-set { background: var(--surface); }
+    .linker-summary-empty { margin: 0; color: var(--text-muted); font-size: 0.9rem; }
+    .linker-layout.compacting #linker-summary { opacity: 0; pointer-events: none; }
+    .linker-layout.inspecting #linker-summary { display: none; }
 
     /* --- Inventario dei Linker dello slot (griglia + dettaglio, come gli artefatti di Genshin) --- */
     #linker-inventory {
@@ -502,7 +530,6 @@
     .linker-card-level { position: absolute; top: 3px; left: 6px; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); }
     .linker-card-name { font-weight: 700; font-size: 0.85rem; }
     .linker-card-stars { color: var(--rarity); letter-spacing: 1px; font-size: 0.8rem; }
-    .linker-detail-stars { letter-spacing: 1px; }
     .linker-card-equipped {
       position: absolute;
       top: 3px;
@@ -524,34 +551,7 @@
       background: var(--tint);
       box-shadow: inset 3px 0 0 var(--linker-color, var(--accent));
     }
-    .linker-detail-title { margin: 0; font-size: 1.05rem; color: var(--set, var(--text)); }
     .linker-detail.busy { opacity: 0.6; pointer-events: none; }
-    .linker-detail-level { font-weight: 800; color: var(--text); }
-    .linker-detail-meta, .linker-detail-empty { margin: 0; color: var(--text-muted); }
-    .linker-detail-stars { margin: 0; }
-    .linker-detail-stats { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
-    .linker-stat { display: flex; justify-content: space-between; padding: 6px 2px; border-bottom: 1px dashed var(--line); }
-    .linker-stat.main { font-weight: 800; font-size: 1.05rem; }
-    .linker-stat-upgrades {
-      margin-left: 6px;
-      padding: 0 5px;
-      font-size: 0.72rem;
-      font-weight: 800;
-      color: var(--on-accent);
-      background: var(--linker-color, var(--accent));
-    }
-    .linker-stat.just-upgraded { animation: sub-upgraded 1.4s ease-out; }
-    @keyframes sub-upgraded {
-      0%, 30% { background: color-mix(in srgb, var(--linker-color, var(--accent)) 30%, transparent); }
-    }
-    .linker-set {
-      padding: 8px 10px;
-      border: 1px solid var(--line);
-      box-shadow: inset 3px 0 0 var(--set);
-    }
-    .linker-set-name { margin: 0 0 4px; font-weight: 700; color: var(--set); }
-    .linker-set-bonus { margin: 0; font-size: 0.85rem; color: var(--text-muted); opacity: 0.7; }
-    .linker-set-bonus.active { color: var(--text); opacity: 1; font-weight: 600; }
     .linker-icon-btn {
       --cut: 6px;
       min-width: 40px;
@@ -575,7 +575,6 @@
     .linker-level-shortcuts { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
     .linker-level-cost { margin: 0; display: flex; justify-content: space-between; font-weight: 700; }
     .linker-level-cost .insufficient { color: var(--danger); }
-    .linker-stat-value { font-variant-numeric: tabular-nums; font-weight: 700; }
     .linker-detail-badge { margin: 0; font-weight: 700; color: var(--linker-color, var(--accent-text)); }
     .linker-detail-actions { margin-top: auto; display: flex; gap: 8px; }
     .linker-action { flex: 1; padding: 0.6em 1em; font-size: 0.9rem; }
@@ -613,10 +612,11 @@
       .linker-layout,
       .linker-layout.inspecting {
         grid-template-columns: minmax(0, 1fr);
-        grid-template-areas: "circle" "slots" "inventory";
+        grid-template-areas: "circle" "slots" "summary" "inventory";
+        grid-template-rows: none;
         justify-items: center;
       }
-      #linker-inventory { justify-self: stretch; contain: none; }
+      #linker-inventory, #linker-summary { justify-self: stretch; contain: none; }
       .linker-inventory-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
       .linker-grid { max-height: 460px; }
     }
@@ -658,6 +658,11 @@
     <div class="linker-layout">
       <canvas id="linker-circle" width="380" height="380" aria-label="Cerchio dei Linker: clicca uno slot per aprirlo"></canvas>
       <ul id="linker-slots" class="stats-list" role="tablist" aria-label="Slot dei Linker"></ul>
+      <!-- Resoconto dei set equipaggiati: si vede solo a inventario chiuso -->
+      <section id="linker-summary" aria-labelledby="linker-summary-title">
+        <h3 id="linker-summary-title">Bonus dei set</h3>
+        <div class="linker-summary-sets" data-role="sets"></div>
+      </section>
       <section id="linker-inventory" class="panel" hidden>
         <header class="linker-inventory-header">
           <h3 data-role="title"></h3>

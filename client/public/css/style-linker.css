@@ -1,0 +1,35 @@
+/* Dettaglio di un Linker e riquadri dei set: usati nella pagina info (inventario, resoconto) e nello shop.
+   Elementi creati da js/ui/linker-detail.js */
+
+.linker-detail-title { margin: 0; font-size: 1.05rem; color: var(--set, var(--text)); }
+.linker-detail-level { font-weight: 800; color: var(--text); }
+.linker-detail-meta, .linker-detail-empty { margin: 0; color: var(--text-muted); }
+.linker-detail-stars { margin: 0; letter-spacing: 1px; }
+.linker-detail-stats { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.linker-stat { display: flex; justify-content: space-between; padding: 6px 2px; border-bottom: 1px dashed var(--line); }
+.linker-stat.main { font-weight: 800; font-size: 1.05rem; }
+.linker-stat-value { font-variant-numeric: tabular-nums; font-weight: 700; }
+.linker-stat-upgrades {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--on-accent);
+  background: var(--linker-color, var(--accent));
+}
+.linker-stat.just-upgraded { animation: sub-upgraded 1.4s ease-out; }
+@keyframes sub-upgraded {
+  0%, 30% { background: color-mix(in srgb, var(--linker-color, var(--accent)) 30%, transparent); }
+}
+
+/* --- Set: pezzi equipaggiati e bonus a 2 / 4 pezzi (quelli raggiunti in evidenza) --- */
+.linker-set {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  box-shadow: inset 3px 0 0 var(--set);
+}
+.linker-set-name { margin: 0 0 4px; font-weight: 700; color: var(--set); }
+.linker-set-bonus { margin: 0; font-size: 0.85rem; color: var(--text-muted); opacity: 0.7; }
+.linker-set-bonus.active { color: var(--text); opacity: 1; font-weight: 600; }
+.linker-set-bonus::before { content: '○ '; }
+.linker-set-bonus.active::before { content: '● '; color: var(--set); }

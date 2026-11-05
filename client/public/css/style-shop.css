@@ -172,6 +172,46 @@ html[data-theme="night"] .shop-pack-name { filter: none; }
 .pull-card-rarity { font-size: 0.72rem; color: var(--rarity); text-transform: uppercase; letter-spacing: 0.1em; }
 .pull-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
 
+/* Carta cliccabile: quella di cui si vede il dettaglio si alza e prende il bordo chiaro */
+.pull-card {
+  cursor: pointer;
+  transition: translate 0.2s ease, border-color 0.2s ease, filter 0.2s ease;
+}
+.pull-card:hover { filter: brightness(1.15); }
+.pull-card:focus-visible { outline: none; border-color: #fff; }
+.pull-card.picked { translate: 0 -6px; border-color: #fff; filter: brightness(1.2); }
+.pull-hint { margin: -10px 0 0; font-size: 0.8rem; color: rgba(224, 231, 255, 0.65); }
+
+/* --- Dettaglio del Linker cliccato (pezzi da js/ui/linker-detail.js, stili in style-linker.css) --- */
+.pull-detail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(420px, 100%);
+  padding: 16px 18px;
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--set);
+  animation: pull-detail-in 0.25s cubic-bezier(.16, 1, .3, 1);
+}
+.pull-detail[hidden] { display: none; }
+.pull-detail .linker-detail-title { padding-right: 28px; }
+.pull-detail-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.pull-detail-close:hover { color: var(--text); }
+@keyframes pull-detail-in { from { opacity: 0; translate: 0 12px; } }
+
 @keyframes pull-overlay-in { from { opacity: 0; } }
 @keyframes pull-card-in {
   from { opacity: 0; translate: 0 26px; scale: 0.85; filter: brightness(2.2); }

@@ -105,7 +105,7 @@ export const LINKER_SETS = {
   },
   kernel: {
     name: 'Kernel Elementale', color: '#c56bff',
-    bonus2: { elementalAll: 0.10 }, text2: 'Bonus DMG di tutti gli elementi +10%',
+    bonus2: { elementalAll: 0.06 }, text2: 'Bonus DMG di tutti gli elementi +6%',
     bonus4: { critDmg: 0.25 }, text4: 'DMG CRIT +25%'
   }
 };

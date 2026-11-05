@@ -18,6 +18,7 @@ import {
 import { equipLinker, levelUpLinker, catalyzeLinker } from '../services/linker-db.js';
 import { LinkerCircle } from '../ui/linker-circle.js';
 import { LinkerInspector } from '../ui/linker-inspector.js';
+import { setSummary } from '../ui/linker-detail.js';
 import { RUNE_ALPHABETS } from '../ui/runes.js';
 import { snapshotTexts, scrambleChanged } from '../ui/scramble.js';
 
@@ -490,9 +491,18 @@ function renderLinker(data) {
   });
   slotList.replaceChildren(...rows);
   if (before) scrambleChanged(slotList, before);
+  renderLinkerSummary(data);
   document.getElementById('wallet-bitrune').textContent = getCurrency(data, 'bitrune');
   document.getElementById('wallet-catalyst').textContent = getCurrency(data, 'catalizzante');
   linkerInspector.refresh();
+}
+
+// Resoconto dei set equipaggiati sotto gli slot (inventario chiuso): bonus attivi e quelli ancora da raggiungere
+function renderLinkerSummary(data) {
+  const container = document.querySelector('#linker-summary [data-role="sets"]');
+  const before = container.children.length ? snapshotTexts(container) : null;
+  container.replaceChildren(...setSummary(countEquippedSets(data)));
+  if (before) scrambleChanged(container, before);
 }
 
 // Esegue un'operazione sui Linker (transazione su Firestore), poi ricarica il profilo:

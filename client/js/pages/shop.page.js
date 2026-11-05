@@ -8,9 +8,10 @@ import { pullLinkers } from '../services/linker-db.js';
 import { getCurrency } from '../game/linker.js';
 import {
   PACKS, LINKER_SETS, LINKER_SLOTS, LINKER_STATS, RARITIES, MAX_RARITY, MULTI_PULL, EPIC_PITY, LEGENDARY_PITY,
-  CURRENCIES, mainStatValue, formatStatValue
+  CURRENCIES, mainStatValue, formatStatValue, countEquippedSets
 } from '../game/linker-data.js';
 import { loadLinkerArt, getLinkerArt } from '../ui/linker-art.js';
+import { linkerHeader, linkerStats, setBonusBox } from '../ui/linker-detail.js';
 
 initColorTheme();
 setPageFavicon({ element: 'fulmine', charged: true }); // icona della scheda: un cerchio magico diverso per ogni pagina
@@ -24,6 +25,7 @@ const bitrune = CURRENCIES.bitrune;
 
 let player = null;
 let pulling = false;
+let pickedCard = null; // carta del risultato di cui si vede il dettaglio
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -145,13 +147,63 @@ function resultCard(linker, index) {
     el('span', 'pull-card-set', set.name),
     el('span', 'pull-card-rarity', rarity.name)
   );
+  // Cliccando la carta si vede il dettaglio del Linker (main stat, sub stat, bonus del set)
+  li.tabIndex = 0;
+  li.setAttribute('role', 'button');
+  li.setAttribute('aria-expanded', 'false');
+  li.title = 'Vedi il dettaglio';
+  const toggle = () => (pickedCard === li ? hideDetail() : showDetail(linker, li));
+  li.addEventListener('click', toggle);
+  li.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      toggle();
+    }
+  });
   return li;
+}
+
+// --- Dettaglio di un Linker ottenuto ---
+
+function showDetail(linker, card) {
+  pickedCard?.classList.remove('picked');
+  pickedCard?.setAttribute('aria-expanded', 'false');
+  pickedCard = card;
+  card.classList.add('picked');
+  card.setAttribute('aria-expanded', 'true');
+
+  const detail = document.getElementById('pull-detail');
+  detail.style.setProperty('--set', LINKER_SETS[linker.set]?.color || STANDARD_COLOR);
+  const close = el('button', 'pull-detail-close', '✕');
+  close.type = 'button';
+  close.title = 'Chiudi il dettaglio';
+  close.setAttribute('aria-label', 'Chiudi il dettaglio');
+  close.addEventListener('click', hideDetail);
+  // Il riquadro del set conta i pezzi già equipaggiati: si vede subito se il nuovo Linker completa un bonus
+  const setCounts = countEquippedSets(player);
+  detail.replaceChildren(close, ...linkerHeader(linker), linkerStats(linker), setBonusBox(linker.set, setCounts[linker.set] || 0));
+  detail.hidden = false;
+  detail.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function hideDetail() {
+  pickedCard?.classList.remove('picked');
+  pickedCard?.setAttribute('aria-expanded', 'false');
+  pickedCard?.focus();
+  pickedCard = null;
+  document.getElementById('pull-detail').hidden = true;
+}
+
+function closeResults() {
+  hideDetail();
+  document.getElementById('pull-overlay').hidden = true;
 }
 
 function showResults(linkers) {
   const best = Math.max(...linkers.map(l => l.rarita));
   document.getElementById('pull-title').textContent =
     best === MAX_RARITY ? 'Linker Leggendario ottenuto!' : `${linkers.length === 1 ? 'Linker ottenuto' : 'Linker ottenuti'}`;
+  hideDetail();
   document.getElementById('pull-results').replaceChildren(...linkers.map(resultCard));
   const overlay = document.getElementById('pull-overlay');
   overlay.hidden = false;
@@ -159,16 +211,16 @@ function showResults(linkers) {
   playSfx(best >= 4 ? 'levelUp' : 'success');
 }
 
-document.getElementById('pull-close').addEventListener('click', () => {
-  document.getElementById('pull-overlay').hidden = true;
-});
+document.getElementById('pull-close').addEventListener('click', closeResults);
 // #linker: la pagina info si apre direttamente sul pannello dei Linker
 const toLinkers = () => navigateTo(`/player-info.html?user=${encodeURIComponent(username)}#linker`);
 document.getElementById('pull-linker').addEventListener('click', toLinkers);
 document.getElementById('shop-linker-btn').addEventListener('click', toLinkers);
 document.getElementById('home-btn').addEventListener('click', () => navigateTo('/home.html'));
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') document.getElementById('pull-overlay').hidden = true;
+  if (e.key !== 'Escape') return;
+  if (pickedCard) hideDetail(); // prima si chiude il dettaglio, poi il risultato
+  else closeResults();
 });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && !pulling) reload();

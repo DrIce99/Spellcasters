@@ -319,7 +319,7 @@ Leggendario 2%; garanzia (condivisa tra i pacchetti): almeno un Epico ogni 10 pu
   l'80% del Catalizzante investito).
 - **Set** (bonus a 2 e 4 pezzi equipaggiati): Firewall Arcano (HP +15% · DEF elementi +10%), Overclock Runico
   (ATK +12% · Tasso CRIT +10%), Bus di Mana (Rigenerazione mana +20% · Consumo di mana -10%), Kernel Elementale
-  (Bonus DMG elementi +10% · DMG CRIT +25%).
+  (Bonus DMG elementi +6% · DMG CRIT +25%).
 - Effetti in gioco: valore base × (1 + %) + valore fisso. **Critico**: tasso base 0% (solo dai Linker), DMG CRIT base 50%;
   i proiettili tirano il critico a ogni colpo, laser e aree usano il valore medio.
 

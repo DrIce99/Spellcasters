@@ -7,6 +7,7 @@
   <link rel="icon" href="data:,"> <!-- sostituita da js/ui/favicon.js con un cerchio magico -->
   <link rel="stylesheet" href="/css/style-base.css">
   <link rel="stylesheet" href="/css/style-buttons.css">
+  <link rel="stylesheet" href="/css/style-linker.css">
   <link rel="stylesheet" href="/css/style-shop.css">
   <link rel="stylesheet" href="/css/style-motion.css">
   <!-- Tema già al primo disegno: niente lampo chiaro di notte, e il velo di transizione ha il colore giusto -->
@@ -31,6 +32,9 @@
   <div id="pull-overlay" class="pull-overlay" hidden>
     <h2 class="section-title" id="pull-title">Linker ottenuti</h2>
     <ul class="pull-results" id="pull-results"></ul>
+    <p class="pull-hint">Clicca un Linker per vederne il dettaglio</p>
+    <!-- Dettaglio del Linker cliccato (shop.page.js) -->
+    <aside id="pull-detail" class="pull-detail panel" aria-live="polite" hidden></aside>
     <div class="pull-actions">
       <button type="button" id="pull-close" class="main-btn">Continua</button>
       <button type="button" id="pull-linker" class="main-btn">Vai ai Linker</button>

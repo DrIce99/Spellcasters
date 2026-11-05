@@ -4,9 +4,12 @@
 // Quando il contenuto cambia (altro slot, altro Linker, potenziamento...) i testi nuovi si scrivono (scramble.js).
 import { snapshotTexts, scrambleChanged } from './scramble.js';
 import {
-  LINKER_SLOTS, LINKER_SETS, LINKER_STATS, RARITIES, CURRENCIES, LINKER_MAX_LEVEL, SUB_UPGRADE_EVERY,
-  mainStatValue, subStatValue, formatStatValue, expToNextLevel, catalystToLevel, catalystYield
+  RARITIES, CURRENCIES, LINKER_MAX_LEVEL, SUB_UPGRADE_EVERY,
+  mainStatValue, formatStatValue, expToNextLevel, catalystToLevel, catalystYield
 } from '../game/linker-data.js';
+import {
+  el, stars, slotLabel, statLabel, setInfo, linkerHeader, mainStatLine, subStatLines, linkerStats, setBonusBox
+} from './linker-detail.js';
 
 const SORTS = {
   rarita: (a, b) => (b.rarita || 0) - (a.rarita || 0) || (b.livello || 0) - (a.livello || 0),
@@ -14,21 +17,7 @@ const SORTS = {
 };
 const CONFIRM_MS = 3500; // il cestino resta in attesa di conferma per qualche secondo
 
-const slotLabel = (key) => LINKER_SLOTS.find(s => s.key === key)?.label || key;
-const statLabel = (key) => LINKER_STATS[key]?.label || key;
-const setOf = (linker) => LINKER_SETS[linker.set] || { name: 'Set sconosciuto', color: 'var(--line-strong)' };
 const catalyst = CURRENCIES.catalizzante;
-
-function el(tag, className, text) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
-
-function stars(count) {
-  return '★'.repeat(Math.max(0, Math.min(5, count || 0)));
-}
 
 function button(className, text, onClick, { title, disabled } = {}) {
   const btn = el('button', className, text);
@@ -112,7 +101,7 @@ export class LinkerInventoryView {
   // --- Griglia ---
 
   card(linker, picked, isEquipped) {
-    const set = setOf(linker);
+    const set = setInfo(linker.set);
     const li = el('li', 'linker-card');
     li.dataset.key = linker.id; // per scramble.js: la carta resta la stessa anche se cambia posizione
     li.style.setProperty('--rarity', RARITIES[linker.rarita]?.color || 'var(--line-strong)');
@@ -153,54 +142,9 @@ export class LinkerInventoryView {
     );
   }
 
-  header(linker) {
-    const set = setOf(linker);
-    const rarity = RARITIES[linker.rarita];
-    const title = el('h4', 'linker-detail-title', `${set.name} · ${slotLabel(linker.slot)}`);
-    title.style.setProperty('--set', set.color);
-    const meta = el('p', 'linker-detail-meta');
-    const starsEl = el('span', 'linker-detail-stars', stars(linker.rarita));
-    starsEl.style.color = rarity?.color || '';
-    meta.append(el('span', null, `${rarity?.name || ''} `), starsEl, el('span', 'linker-detail-level', ` +${linker.livello || 0}`));
-    return [title, meta];
-  }
-
-  mainStatLine(linker, value = mainStatValue(linker)) {
-    const li = el('li', 'linker-stat main');
-    li.append(el('span', 'linker-stat-name', statLabel(linker.principale)), el('span', 'linker-stat-value', formatStatValue(linker.principale, value)));
-    return li;
-  }
-
-  subStatLines(linker) {
-    return (linker.secondarie || []).map(sub => {
-      const li = el('li', 'linker-stat sub');
-      li.classList.toggle('just-upgraded', this.highlightSubs.includes(sub.stat));
-      const name = el('span', 'linker-stat-name', statLabel(sub.stat));
-      // Numero di potenziamenti, solo per le sub stat migliorate almeno una volta
-      if (sub.upgrades > 0) name.append(el('span', 'linker-stat-upgrades', `+${sub.upgrades}`));
-      li.append(name, el('span', 'linker-stat-value', formatStatValue(sub.stat, subStatValue(sub))));
-      return li;
-    });
-  }
-
-  setBonus(linker, setCounts) {
-    const set = setOf(linker);
-    const count = setCounts[linker.set] || 0;
-    const box = el('div', 'linker-set');
-    box.style.setProperty('--set', set.color);
-    box.append(el('p', 'linker-set-name', `${set.name} (${count}/4 equipaggiati)`));
-    for (const [pieces, text] of [[2, set.text2], [4, set.text4]]) {
-      const line = el('p', 'linker-set-bonus', `${pieces} pezzi: ${text || '—'}`);
-      line.classList.toggle('active', count >= pieces);
-      box.append(line);
-    }
-    return box;
-  }
-
   renderDetail(linker, data) {
     const isEquipped = linker.id === data.equipped?.id;
-    const stats = el('ul', 'linker-detail-stats');
-    stats.append(this.mainStatLine(linker), ...this.subStatLines(linker));
+    const stats = linkerStats(linker, this.highlightSubs);
 
     const actions = el('div', 'linker-detail-actions');
     if (data.canEdit) {
@@ -217,9 +161,9 @@ export class LinkerInventoryView {
     }
 
     this.detail.replaceChildren(
-      ...this.header(linker),
+      ...linkerHeader(linker),
       stats,
-      this.setBonus(linker, data.setCounts),
+      setBonusBox(linker.set, data.setCounts[linker.set] || 0),
       ...(isEquipped ? [el('p', 'linker-detail-badge', 'Equipaggiato')] : []),
       actions
     );
@@ -295,10 +239,10 @@ export class LinkerInventoryView {
     const preview = el('ul', 'linker-detail-stats');
     const mainNow = mainStatValue(linker);
     const mainAfter = mainStatValue({ ...linker, livello: target });
-    const mainLine = this.mainStatLine(linker, mainNow);
+    const mainLine = mainStatLine(linker, mainNow);
     if (!maxed) mainLine.querySelector('.linker-stat-value').textContent =
       `${formatStatValue(linker.principale, mainNow)} → ${formatStatValue(linker.principale, mainAfter)}`;
-    preview.append(mainLine, ...this.subStatLines(linker));
+    preview.append(mainLine, ...subStatLines(linker, this.highlightSubs));
     const subUpgrades = Math.floor(target / SUB_UPGRADE_EVERY) - Math.floor(level / SUB_UPGRADE_EVERY);
 
     const owned = el('p', 'linker-level-cost');
@@ -322,7 +266,7 @@ export class LinkerInventoryView {
 
     this.detail.replaceChildren(
       el('h4', 'linker-detail-title', 'Potenziamento'),
-      ...this.header(linker),
+      ...linkerHeader(linker),
       bar,
       barText,
       ...(maxed ? [] : [stepper, shortcuts]),
